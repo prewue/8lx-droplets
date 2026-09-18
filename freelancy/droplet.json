@@ -1,0 +1,46 @@
+{
+  "id": "freelance-tracker",
+  "name": "Freelancy",
+  "version": "1.0.0",
+  "summary": "Bill by the hour and watch the money tick in the notch",
+  "description": "Freelancy is a minimal time and money meter for hourly work, and it lives on the shelf. A menu of four: Timer, Projects, Analytics, Settings.\n\nThe timer shows the current session of the current project: the clock, the money under it, pause and resume on the left, a fresh session on the right. The project's name above the clock is a badge; tap it to switch projects. The disc in the corner opens the project's sessions.\n\nProjects and sessions are cards in a row: tap one to pick it, hover to edit or delete it; a delete asks first, right on the shelf. A new project takes a rate from a slider, a currency from a row of tabs and a colour from a palette, is named after its number, and is renamed in Settings, together with its sessions.\n\nAnalytics shows one project at a time: two weeks of money and time as bars, the totals, the number and average length of its sessions, and a button that writes that project's sessions to a CSV in Downloads.\n\nWhile a session runs, the clock in the project's colour and the amount earned so far sit beside the notch and tick every second, only the changed digit moving.",
+  "category": "Productivity",
+  "kit": {
+    "abi": 1,
+    "minAPI": "1.8.0"
+  },
+  "minAppVersion": "15.3.0",
+  "capabilities": [
+    "hud",
+    "shelf-write"
+  ],
+  "surfaces": [
+    "shelf-widget",
+    "live-activity",
+    "settings-pane",
+    "hud"
+  ],
+  "icon": "FreelanceTracker.icon",
+  "creator": {
+    "name": "8lx",
+    "kind": "community",
+    "url": "https://github.com/prewue/freelancy",
+    "avatar": "Creator.png"
+  },
+  "source": {
+    "repository": "https://github.com/prewue/freelancy",
+    "license": "MIT"
+  },
+  "keywords": [
+    "time",
+    "timer",
+    "billing",
+    "hourly",
+    "rate",
+    "money",
+    "freelance",
+    "invoice",
+    "project",
+    "client"
+  ]
+}
