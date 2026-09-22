@@ -16,12 +16,40 @@ public enum TrackerScreen: Hashable, Sendable {
     case sessions
     case newProject
     case editProject
+    case renameSession
     case analytics
 }
 
-public enum PendingDeletion: Hashable, Sendable {
-    case project(UUID)
-    case session(UUID)
+public enum ProjectStep: Hashable, Sendable {
+    case name
+    case look
+    case rate
+    case currency
+}
+
+public struct SessionRename: Equatable, Sendable {
+    public let sessionID: UUID
+    public var name: String
+}
+
+public struct ProjectDraft: Equatable, Sendable {
+    public var editingID: UUID?
+    public var step: ProjectStep = .name
+    public var name: String
+    public var icon: ProjectIcon
+    public var color: ProjectColor
+    public var rate: Double
+    public var currency: TrackerCurrency
+    public var pendingCurrency: TrackerCurrency?
+
+    public var isEditing: Bool { editingID != nil }
+}
+
+public enum PendingConfirmation: Hashable, Sendable {
+    case deleteProject(UUID)
+    case deleteSession(UUID)
+    case newSession(UUID)
+    case switchProject(UUID)
 }
 
 @MainActor
@@ -38,13 +66,26 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     @Published public private(set) var currentProjectID: UUID?
 
-    @Published public private(set) var screen: TrackerScreen = .menu
+    @Published public private(set) var screen: TrackerScreen = .menu {
+        didSet {
+            if oldValue != screen { syncShelfHold() }
+        }
+    }
 
-    @Published public private(set) var editingProjectID: UUID?
+    @Published public private(set) var draft: ProjectDraft?
+
+    @Published public private(set) var sessionRename: SessionRename?
+
+    private var holdsShelf = false
+
 
     @Published public private(set) var analyticsProjectID: UUID?
 
-    @Published public private(set) var pendingDeletion: PendingDeletion?
+    @Published public private(set) var pendingConfirmation: PendingConfirmation?
+
+    @Published public private(set) var freshSessionID: UUID?
+
+    private var freshTask: Task<Void, Never>?
 
     @Published public private(set) var now = Date()
 
@@ -61,6 +102,8 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         static let showsHUD = "showsHUD"
         static let moneyFirst = "moneyFirst"
         static let startsSessionsRunning = "startsSessionsRunning"
+        static let asksBeforeNewSession = "asksBeforeNewSession"
+        static let asksBeforeSwitching = "asksBeforeSwitching"
     }
 
     public func activate(host: DropletHost) throws {
@@ -78,6 +121,12 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     }
 
     public func deactivate() {
+        if holdsShelf {
+            _ = host?.shelf.setHoldsOpen(false)
+            holdsShelf = false
+        }
+        freshTask?.cancel()
+        freshTask = nil
         ticker?.cancel()
         ticker = nil
         activitySubject.send(nil)
@@ -172,6 +221,28 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         )
     }
 
+    public var asksBeforeNewSession: Bool {
+        host?.preferences.value(forKey: Keys.asksBeforeNewSession, default: true) ?? true
+    }
+
+    public var asksBeforeNewSessionBinding: Binding<Bool> {
+        Binding(
+            get: { self.asksBeforeNewSession },
+            set: { self.host?.preferences.setValue($0, forKey: Keys.asksBeforeNewSession); self.objectWillChange.send() }
+        )
+    }
+
+    public var asksBeforeSwitching: Bool {
+        host?.preferences.value(forKey: Keys.asksBeforeSwitching, default: true) ?? true
+    }
+
+    public var asksBeforeSwitchingBinding: Binding<Bool> {
+        Binding(
+            get: { self.asksBeforeSwitching },
+            set: { self.host?.preferences.setValue($0, forKey: Keys.asksBeforeSwitching); self.objectWillChange.send() }
+        )
+    }
+
     public var moneyFirstBinding: Binding<Bool> {
         Binding(
             get: { self.moneyFirst },
@@ -194,7 +265,121 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     }
 
     public func openTimer() {
-        show(projects.isEmpty ? .newProject : .timer)
+        if projects.isEmpty {
+            startNewProject()
+        } else {
+            show(.timer)
+        }
+    }
+
+    public var isInProjectFlow: Bool {
+        screen == .newProject || screen == .editProject || screen == .renameSession
+    }
+
+    public func startRenamingSession(_ sessionID: UUID) {
+        guard let session = session(sessionID) else { return }
+        sessionRename = SessionRename(sessionID: sessionID, name: session.name)
+        show(.renameSession)
+    }
+
+    public func updateSessionRename(_ name: String) {
+        guard var rename = sessionRename, rename.name != name else { return }
+        rename.name = name
+        sessionRename = rename
+    }
+
+    public func commitSessionRename() {
+        if let rename = sessionRename {
+            renameSession(rename.sessionID, to: rename.name)
+            host?.feedback.play(.success)
+        }
+        sessionRename = nil
+        show(.sessions)
+    }
+
+    public func cancelSessionRename() {
+        sessionRename = nil
+        show(.sessions)
+    }
+
+    private func syncShelfHold() {
+        let wants = isInProjectFlow
+        guard wants != holdsShelf, let host else { return }
+        holdsShelf = wants
+        _ = host.shelf.setHoldsOpen(wants)
+        host.shelf.invalidateLayout(for: Self.widgetID)
+    }
+
+    public var draftPlaceholderName: String {
+        "Project \(projects.count + 1)"
+    }
+
+    public func startNewProject() {
+        draft = ProjectDraft(
+            name: "",
+            icon: .briefcase,
+            color: ProjectColor.suggested(forProjectNumber: projects.count + 1),
+            rate: defaultRate,
+            currency: defaultCurrency
+        )
+        show(.newProject)
+    }
+
+    public func updateDraft(_ change: (inout ProjectDraft) -> Void) {
+        guard var current = draft else { return }
+        change(&current)
+        if current != draft { draft = current }
+    }
+
+    public func setDraftStep(_ step: ProjectStep) {
+        updateDraft {
+            if step == .currency { $0.pendingCurrency = $0.currency }
+            $0.step = step
+        }
+    }
+
+    private func closeCurrencyPicker(applying: Bool) {
+        updateDraft {
+            if applying, let chosen = $0.pendingCurrency { $0.currency = chosen }
+            $0.pendingCurrency = nil
+            $0.step = .rate
+        }
+    }
+
+    public func advanceDraft() {
+        guard let draft else { return }
+        switch draft.step {
+        case .name: setDraftStep(.look)
+        case .look: setDraftStep(.rate)
+        case .rate: commitDraft()
+        case .currency: closeCurrencyPicker(applying: true)
+        }
+    }
+
+    public func backInDraft() {
+        guard let draft else {
+            show(projects.isEmpty ? .menu : .projects)
+            return
+        }
+        switch draft.step {
+        case .currency: closeCurrencyPicker(applying: false)
+        case .rate: setDraftStep(.look)
+        case .look: setDraftStep(.name)
+        case .name:
+            let target: TrackerScreen = draft.isEditing || !projects.isEmpty ? .projects : .menu
+            show(target)
+            self.draft = nil
+        }
+    }
+
+    public func commitDraft() {
+        guard let draft else { return }
+        if let id = draft.editingID {
+            updateProject(id, name: draft.name, rate: draft.rate, currency: draft.currency, color: draft.color, icon: draft.icon)
+        } else {
+            createProject(name: draft.name, rate: draft.rate, currency: draft.currency, color: draft.color, icon: draft.icon)
+        }
+        self.draft = nil
     }
 
     public func open(_ projectID: UUID) {
@@ -207,11 +392,16 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     }
 
     public func edit(_ projectID: UUID) {
-        guard projects.contains(where: { $0.id == projectID }) else { return }
-        let heightBefore = widgetHeight
-        editingProjectID = projectID
-        screen = .editProject
-        refreshLayout(from: heightBefore)
+        guard let project = project(projectID) else { return }
+        draft = ProjectDraft(
+            editingID: projectID,
+            name: project.name,
+            icon: project.icon,
+            color: project.color,
+            rate: project.rate,
+            currency: project.currency
+        )
+        show(.editProject)
     }
 
     public func showAnalytics(for projectID: UUID) {
@@ -220,22 +410,19 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         show(.analytics)
     }
 
-    public var editingProject: Project? {
-        guard let editingProjectID else { return nil }
-        return project(editingProjectID)
-    }
-
     public func openSettings() {
         host?.workspace.openSettings()
     }
 
     @discardableResult
-    public func createProject(rate: Double, currency: TrackerCurrency, color: ProjectColor) -> Project {
+    public func createProject(name: String, rate: Double, currency: TrackerCurrency, color: ProjectColor, icon: ProjectIcon) -> Project {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let project = Project(
-            name: "Project \(projects.count + 1)",
+            name: trimmed.isEmpty ? draftPlaceholderName : trimmed,
             rate: max(0, rate),
             currencyCode: currency.code,
-            color: color
+            color: color,
+            icon: icon
         )
         let heightBefore = widgetHeight
         projects.insert(project, at: 0)
@@ -263,11 +450,14 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         publishActivity()
     }
 
-    public func updateProject(_ projectID: UUID, rate: Double, currency: TrackerCurrency, color: ProjectColor) {
+    public func updateProject(_ projectID: UUID, name: String, rate: Double, currency: TrackerCurrency, color: ProjectColor, icon: ProjectIcon) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { projects[index].name = trimmed }
         projects[index].rate = max(0, rate)
         projects[index].currencyCode = currency.code
         projects[index].color = color
+        projects[index].icon = icon
         save()
         publishActivity()
         host?.feedback.play(.success)
@@ -280,6 +470,12 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         save()
     }
 
+    public func setIcon(_ projectID: UUID, to icon: ProjectIcon) {
+        guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        projects[index].icon = icon
+        save()
+    }
+
     public func setCurrency(_ projectID: UUID, to currency: TrackerCurrency) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
         projects[index].currencyCode = currency.code
@@ -287,20 +483,57 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         publishActivity()
     }
 
-    public func askToDelete(_ deletion: PendingDeletion) {
-        pendingDeletion = deletion
+    public func ask(_ confirmation: PendingConfirmation) {
+        pendingConfirmation = confirmation
     }
 
-    public func cancelDeletion() {
-        pendingDeletion = nil
+    public func cancelConfirmation() {
+        pendingConfirmation = nil
     }
 
-    public func confirmDeletion() {
-        guard let pendingDeletion else { return }
-        self.pendingDeletion = nil
-        switch pendingDeletion {
-        case .project(let id): deleteProject(id)
-        case .session(let id): deleteSession(id)
+    public func confirmPending() {
+        guard let pendingConfirmation else { return }
+        self.pendingConfirmation = nil
+        switch pendingConfirmation {
+        case .deleteProject(let id):
+            deleteProject(id)
+        case .deleteSession(let id):
+            deleteSession(id)
+        case .newSession(let id):
+            if let session = newSession(on: id) {
+                flashFreshSession(session.id)
+            }
+        case .switchProject(let id):
+            open(id)
+        }
+    }
+
+    public func requestNewSession(on projectID: UUID) {
+        if asksBeforeNewSession {
+            ask(.newSession(projectID))
+        } else if let session = newSession(on: projectID) {
+            flashFreshSession(session.id)
+        }
+    }
+
+    public func requestOpen(_ projectID: UUID) {
+        if asksBeforeSwitching,
+           let running = runningSession,
+           running.projectID != projectID,
+           projectID != currentProject?.id {
+            ask(.switchProject(projectID))
+        } else {
+            open(projectID)
+        }
+    }
+
+    private func flashFreshSession(_ id: UUID) {
+        freshTask?.cancel()
+        freshSessionID = id
+        freshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2.4))
+            guard !Task.isCancelled, let self else { return }
+            withAnimation(DroppyAnimation.state) { self.freshSessionID = nil }
         }
     }
 
@@ -314,8 +547,8 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         if projects.isEmpty, screen == .projects {
             screen = .menu
         }
-        if editingProjectID == projectID {
-            editingProjectID = nil
+        if draft?.editingID == projectID {
+            draft = nil
             if screen == .editProject { screen = .projects }
         }
         save()
@@ -411,6 +644,10 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     public func deleteSession(_ sessionID: UUID) {
         guard let session = session(sessionID) else { return }
+        if sessionRename?.sessionID == sessionID {
+            sessionRename = nil
+            if screen == .renameSession { screen = .sessions }
+        }
         let heightBefore = widgetHeight
         sessions.removeAll { $0.id == sessionID }
         if let index = projects.firstIndex(where: { $0.id == session.projectID }),
@@ -552,16 +789,19 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let navHeight: CGFloat = 28
 
     static let cardWidth: CGFloat = 176
-    static let cardHeight: CGFloat = 82
-    static let cardSpacing: CGFloat = 8
+    static let projectCardHeight: CGFloat = 112
+    static let sessionCardHeight: CGFloat = 90
+    static let cardSpacing: CGFloat = 12
 
     static let timerRowHeight: CGFloat = 58
 
-    static let formRowHeight: CGFloat = 24
+    static let flowBodyHeight: CGFloat = 80
+    static let flowActionHeight: CGFloat = 28
 
     static let analyticsPageHeight: CGFloat = 112
-    static let chartBarHeight: CGFloat = 52
+    static let chartBarHeight: CGFloat = 56
     static let pageDotsHeight: CGFloat = 6
+    static let pageDotsGap: CGFloat = 16
 
     var widgetHeight: CGFloat {
         let frame = Self.screenTop + Self.screenBottom
@@ -571,13 +811,15 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
             return frame + 84
 
         case .timer:
-            return frame + Self.navHeight + gap + Self.timerRowHeight + gap + 16
-        case .projects, .sessions:
-            return frame + Self.navHeight + gap + Self.cardHeight
-        case .newProject, .editProject:
-            return frame + Self.navHeight + 4 * (gap + Self.formRowHeight)
+            return frame + Self.navHeight + DroppySpacing.md + Self.timerRowHeight + DroppySpacing.md + 16
+        case .projects:
+            return frame + Self.navHeight + gap + Self.projectCardHeight
+        case .sessions:
+            return frame + Self.navHeight + gap + Self.sessionCardHeight
+        case .newProject, .editProject, .renameSession:
+            return frame + Self.navHeight + DroppySpacing.md + Self.flowBodyHeight + DroppySpacing.md + Self.flowActionHeight
         case .analytics:
-            return frame + Self.navHeight + DroppySpacing.lg + Self.analyticsPageHeight + DroppySpacing.md + Self.pageDotsHeight
+            return frame + Self.navHeight + DroppySpacing.xl + Self.analyticsPageHeight + Self.pageDotsGap + Self.pageDotsHeight
         }
     }
 
@@ -592,6 +834,7 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
                     preferredPairedWidth: 210,
                     contentHeight: .fixed(widgetHeight)
                 ),
+                focusPolicy: isInProjectFlow ? .keyboardFocusable : .none,
                 searchKeywords: ["time", "timer", "billing", "hourly", "rate", "money", "freelance", "invoice", "project"]
             )
         ]
@@ -599,7 +842,7 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
 
     public func makeWidgetView(_ id: ShelfWidgetID, context: ShelfWidgetContext) -> AnyView {
         if context.isCompact, !context.isPreview, host?.environment.isHarness == false,
-           screen != .timer, screen != .projects {
+           screen != .timer, screen != .projects, screen != .sessions {
             Task { @MainActor [weak self] in self?.show(.timer) }
         }
         return AnyView(FreelanceTrackerWidget(droplet: self, context: context))
@@ -703,6 +946,8 @@ extension FreelanceTrackerDroplet: SettingsPaneProviding {
             SettingsSearchEntry(title: "Currency", keywords: ["dollar", "euro", "ruble", "currency"]),
             SettingsSearchEntry(title: "Projects", keywords: ["project", "session", "name", "rename"]),
             SettingsSearchEntry(title: "Keep the tracker in the notch", keywords: ["notch", "live activity", "pin"]),
+            SettingsSearchEntry(title: "Ask before starting a new session", keywords: ["confirm", "question", "session", "new", "ask"]),
+            SettingsSearchEntry(title: "Ask before switching projects", keywords: ["confirm", "question", "project", "switch", "ask"]),
             SettingsSearchEntry(title: "Start new sessions running", keywords: ["session", "start", "auto", "timer", "paused"]),
             SettingsSearchEntry(title: "Show me the money", keywords: ["money", "amount", "time", "order", "swap", "first"])
         ]

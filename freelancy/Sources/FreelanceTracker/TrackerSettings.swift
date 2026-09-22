@@ -1,3 +1,4 @@
+import AppKit
 import DroppyKit
 import SwiftUI
 
@@ -53,6 +54,18 @@ struct FreelanceTrackerSettings: View {
                 )
                 DropletSettingsDivider()
                 DropletToggleRow(
+                    title: "Ask before starting a new session",
+                    subtitle: "The plus on the timer asks first. Off, it starts the session at once.",
+                    isOn: droplet.asksBeforeNewSessionBinding
+                )
+                DropletSettingsDivider()
+                DropletToggleRow(
+                    title: "Ask before switching projects",
+                    subtitle: "Picking another project while a session runs asks first. The running session keeps running either way.",
+                    isOn: droplet.asksBeforeSwitchingBinding
+                )
+                DropletSettingsDivider()
+                DropletToggleRow(
                     title: "Show me the money",
                     subtitle: "The amount gets the big digits and the clock the small ones, on the timer and every card. Time is money, but money is money.",
                     isOn: droplet.moneyFirstBinding
@@ -72,7 +85,7 @@ struct FreelanceTrackerSettings: View {
                 )
                 DropletSettingsDivider()
                 DropletToggleRow(
-                    title: "Confirm start and pause",
+                    title: "Show a strip on start and pause",
                     subtitle: "A brief strip on the notch when a session starts, resumes or pauses.",
                     isOn: droplet.showsHUDBinding
                 )
@@ -120,10 +133,17 @@ private struct ProjectSettingsRow: View {
     let toggleExpanded: () -> Void
 
     @State private var draftName: String = ""
+    @State private var confirmingDelete = false
     @FocusState private var nameFocused: Bool
 
     var body: some View {
         HStack(alignment: .center, spacing: DroppySpacing.sm) {
+            ProjectLookMenu(
+                project: project,
+                setColor: { droplet.setColor(project.id, to: $0) },
+                setIcon: { droplet.setIcon(project.id, to: $0) }
+            )
+
             VStack(alignment: .leading, spacing: 2) {
                 TextField("Name", text: $draftName)
                     .textFieldStyle(.plain)
@@ -143,32 +163,42 @@ private struct ProjectSettingsRow: View {
 
             Spacer(minLength: DroppySpacing.md)
 
-            EditablePill(
-                display: project.formattedRate,
-                draft: project.rate == project.rate.rounded() ? String(Int(project.rate)) : String(project.rate),
-                help: "Click to type the hourly rate"
-            ) { text in
-                guard let parsed = Double(text.replacingOccurrences(of: ",", with: ".")), parsed >= 0, parsed.isFinite else { return }
-                droplet.setRate(project.id, to: (parsed * 100).rounded() / 100)
-            }
+            if confirmingDelete {
+                InlineDeleteConfirmation(
+                    question: deleteQuestion,
+                    cancel: { withAnimation(DroppyAnimation.state) { confirmingDelete = false } },
+                    delete: { droplet.deleteProject(project.id) }
+                )
+                .transition(DroppyTransition.element)
+            } else {
+                EditablePill(
+                    display: project.formattedRate,
+                    draft: project.rate == project.rate.rounded() ? String(Int(project.rate)) : String(project.rate),
+                    help: "Click to type the hourly rate"
+                ) { text in
+                    guard let parsed = Double(text.replacingOccurrences(of: ",", with: ".")), parsed >= 0, parsed.isFinite else { return }
+                    droplet.setRate(project.id, to: (parsed * 100).rounded() / 100)
+                }
 
-            CurrencyMenu(selected: project.currency, showsName: false) { droplet.setCurrency(project.id, to: $0) }
+                CurrencyMenu(selected: project.currency, showsName: false) { droplet.setCurrency(project.id, to: $0) }
 
-            Button(action: toggleExpanded) {
-                Image(systemName: isExpanded ? "chevron.up" : "list.bullet")
-            }
-            .buttonStyle(DroppyCircleButtonStyle(size: 24))
-            .help(isExpanded ? "Hide sessions" : "Show sessions")
-            .accessibilityLabel(isExpanded ? "Hide sessions" : "Show sessions")
+                Button {
+                    withAnimation(DroppyAnimation.state) { confirmingDelete = true }
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(DroppyCircleButtonStyle(size: 24, destructive: true, solidFill: nil, foregroundColorOverride: nil))
+                .help("Delete this project and its sessions")
+                .accessibilityLabel("Delete project")
 
-            Button {
-                droplet.deleteProject(project.id)
-            } label: {
-                Image(systemName: "trash")
+                Button(action: toggleExpanded) {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(DroppyCircleButtonStyle(size: 24))
+                .help(isExpanded ? "Hide sessions" : "Show sessions")
+                .accessibilityLabel(isExpanded ? "Hide sessions" : "Show sessions")
             }
-            .buttonStyle(DroppyCircleButtonStyle(size: 24, destructive: true, solidFill: nil, foregroundColorOverride: nil))
-            .help("Delete this project and its sessions")
-            .accessibilityLabel("Delete project")
         }
         .padding(DroppySettingsLayoutMetrics.rowPadding)
         .onAppear { draftName = project.name }
@@ -187,9 +217,96 @@ private struct ProjectSettingsRow: View {
         return parts.joined(separator: " · ")
     }
 
+    private var deleteQuestion: String {
+        let count = droplet.sessions(of: project.id).count
+        return count == 0 ? "Delete this project?" : "Delete with \(count) session\(count == 1 ? "" : "s")?"
+    }
+
     private func commitName() {
         guard draftName != project.name else { return }
         droplet.rename(project.id, to: draftName)
+    }
+}
+
+private struct InlineDeleteConfirmation: View {
+    let question: String
+    let cancel: () -> Void
+    let delete: () -> Void
+
+    var body: some View {
+        HStack(spacing: DroppySpacing.sm) {
+            Text(verbatim: question)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Button("Cancel", action: cancel)
+                .buttonStyle(DroppyQuietButtonStyle(size: .small))
+            Button("Delete", action: delete)
+                .buttonStyle(DroppyQuietButtonStyle(size: .small, destructive: true))
+        }
+        .fixedSize()
+    }
+}
+
+private struct ProjectLookMenu: View {
+    let project: Project
+    let setColor: @MainActor @Sendable (ProjectColor) -> Void
+    let setIcon: @MainActor @Sendable (ProjectIcon) -> Void
+
+    var body: some View {
+        Menu {
+            Section("Color") {
+                Picker("Color", selection: Binding(get: { project.color }, set: setColor)) {
+                    ForEach(ProjectColor.allCases) { color in
+                        Label {
+                            Text(verbatim: color.name)
+                        } icon: {
+                            Image(nsImage: Self.dot(color.color))
+                        }
+                        .tag(color)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+            Section("Icon") {
+                Picker("Icon", selection: Binding(get: { project.icon }, set: setIcon)) {
+                    ForEach(ProjectIcon.allCases) { icon in
+                        Label(icon.name, systemImage: icon.symbol)
+                            .tag(icon)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: DroppyRadius.small, style: .continuous)
+                    .fill(project.color.color.opacity(0.22))
+                Image(systemName: project.icon.symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(project.color.color)
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(RoundedRectangle(cornerRadius: DroppyRadius.small, style: .continuous))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Color and icon")
+        .accessibilityLabel("Color \(project.color.name), icon \(project.icon.name)")
+    }
+
+    private static func dot(_ color: Color) -> NSImage {
+        let fill = NSColor(color)
+        let image = NSImage(size: NSSize(width: 12, height: 12))
+        image.lockFocus()
+        fill.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 1, y: 1, width: 10, height: 10)).fill()
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
     }
 }
 
@@ -222,6 +339,7 @@ private struct SessionSettingsRow: View {
     let session: WorkSession
 
     @State private var draftName: String = ""
+    @State private var confirmingDelete = false
     @FocusState private var nameFocused: Bool
 
     var body: some View {
@@ -240,15 +358,21 @@ private struct SessionSettingsRow: View {
                 .onChange(of: nameFocused) { _, focused in
                     if !focused { commitName() }
                 }
-            Text(verbatim: session.dayLabel)
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+            if !confirmingDelete {
+                Text(verbatim: session.dayLabel)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .transition(DroppyTransition.element)
+            }
             Spacer(minLength: DroppySpacing.md)
-            if session.isRunning {
+            if confirmingDelete {
+                EmptyView()
+            } else if session.isRunning {
                 Text(verbatim: TrackerClock.full(session.duration(at: droplet.now)))
                     .font(.system(size: 12, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .transition(DroppyTransition.element)
             } else {
                 EditablePill(
                     display: TrackerClock.full(session.duration(at: droplet.now)),
@@ -258,20 +382,30 @@ private struct SessionSettingsRow: View {
                     guard let seconds = TrackerClock.parse(text) else { return }
                     droplet.setDuration(of: session.id, seconds: seconds)
                 }
+                .transition(DroppyTransition.element)
             }
             Text(verbatim: project.formattedEarnings(for: session.duration(at: droplet.now)))
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
                 .frame(minWidth: 72, alignment: .trailing)
-            Button {
-                droplet.deleteSession(session.id)
-            } label: {
-                Image(systemName: "xmark")
+            if confirmingDelete {
+                InlineDeleteConfirmation(
+                    question: "Delete?",
+                    cancel: { withAnimation(DroppyAnimation.state) { confirmingDelete = false } },
+                    delete: { droplet.deleteSession(session.id) }
+                )
+                .transition(DroppyTransition.element)
+            } else {
+                Button {
+                    withAnimation(DroppyAnimation.state) { confirmingDelete = true }
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(DroppyCircleButtonStyle(size: 20, destructive: true, solidFill: nil, foregroundColorOverride: nil))
+                .help("Delete this session")
+                .accessibilityLabel("Delete session")
             }
-            .buttonStyle(DroppyCircleButtonStyle(size: 20, destructive: true, solidFill: nil, foregroundColorOverride: nil))
-            .help("Delete this session")
-            .accessibilityLabel("Delete session")
         }
         .padding(.vertical, DroppySpacing.xs)
         .padding(.horizontal, DroppySpacing.smd)

@@ -70,18 +70,71 @@ public struct TrackerCurrency: Hashable, Sendable, Identifiable {
     }
 
     public func formatRate(_ rate: Double) -> String {
-        let isWhole = rate == rate.rounded()
-        let number = rate.formatted(
+        formatAmount(rate) + "/h"
+    }
+
+    public func formatAmount(_ amount: Double) -> String {
+        let isWhole = amount == amount.rounded()
+        let number = amount.formatted(
             .number
                 .precision(.fractionLength(isWhole ? 0 : 2))
                 .grouping(.never)
                 .locale(Locale(identifier: "en_US"))
         )
-        return attach(number) + "/h"
+        return attach(number)
     }
 
     private func attach(_ number: String) -> String {
         symbolIsSuffix ? "\(number) \(symbol)" : "\(symbol)\(number)"
+    }
+}
+
+public enum ProjectIcon: String, Codable, CaseIterable, Sendable, Identifiable {
+    case briefcase, paintbrush, hammer, laptop, camera, music, book, globe
+    case chart, box, pencil, megaphone, cart, game, leaf, heart
+
+    public var id: String { rawValue }
+
+    public var symbol: String {
+        switch self {
+        case .briefcase: "briefcase"
+        case .paintbrush: "paintbrush.pointed"
+        case .hammer: "hammer"
+        case .laptop: "laptopcomputer"
+        case .camera: "camera"
+        case .music: "music.note"
+        case .book: "book.closed"
+        case .globe: "globe"
+        case .chart: "chart.line.uptrend.xyaxis"
+        case .box: "shippingbox"
+        case .pencil: "pencil.line"
+        case .megaphone: "megaphone"
+        case .cart: "cart"
+        case .game: "gamecontroller"
+        case .leaf: "leaf"
+        case .heart: "heart"
+        }
+    }
+
+    public var name: String {
+        switch self {
+        case .briefcase: "Briefcase"
+        case .paintbrush: "Paintbrush"
+        case .hammer: "Hammer"
+        case .laptop: "Laptop"
+        case .camera: "Camera"
+        case .music: "Music"
+        case .book: "Book"
+        case .globe: "Globe"
+        case .chart: "Chart"
+        case .box: "Box"
+        case .pencil: "Pencil"
+        case .megaphone: "Megaphone"
+        case .cart: "Cart"
+        case .game: "Game controller"
+        case .leaf: "Leaf"
+        case .heart: "Heart"
+        }
     }
 }
 
@@ -136,6 +189,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
     public var currentSessionID: UUID?
 
     public var color: ProjectColor
+    public var icon: ProjectIcon
 
     public init(
         id: UUID = UUID(),
@@ -143,6 +197,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         rate: Double,
         currencyCode: String,
         color: ProjectColor = .cyan,
+        icon: ProjectIcon = .briefcase,
         createdAt: Date = Date(),
         currentSessionID: UUID? = nil
     ) {
@@ -151,12 +206,13 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         self.rate = rate
         self.currencyCode = currencyCode
         self.color = color
+        self.icon = icon
         self.createdAt = createdAt
         self.currentSessionID = currentSessionID
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, rate, currencyCode, createdAt, currentSessionID, color
+        case id, name, rate, currencyCode, createdAt, currentSessionID, color, icon
     }
 
     public init(from decoder: Decoder) throws {
@@ -167,7 +223,8 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
         currencyCode = try container.decode(String.self, forKey: .currencyCode)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         currentSessionID = try container.decodeIfPresent(UUID.self, forKey: .currentSessionID)
-        color = try container.decodeIfPresent(ProjectColor.self, forKey: .color) ?? .cyan
+        color = (try? container.decodeIfPresent(ProjectColor.self, forKey: .color)) ?? .cyan
+        icon = (try? container.decodeIfPresent(ProjectIcon.self, forKey: .icon)) ?? .briefcase
     }
 
     public var currency: TrackerCurrency { TrackerCurrency.named(currencyCode) }

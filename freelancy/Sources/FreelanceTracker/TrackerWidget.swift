@@ -12,9 +12,9 @@ struct FreelanceTrackerWidget: View {
                 PairedView(droplet: droplet)
             } else {
                 ZStack(alignment: .top) {
-                    if let deletion = droplet.pendingDeletion {
-                        ConfirmDeleteScreen(droplet: droplet, deletion: deletion)
-                            .id(deletion)
+                    if let confirmation = droplet.pendingConfirmation {
+                        ConfirmScreen(droplet: droplet, confirmation: confirmation, compact: false)
+                            .id(confirmation)
                             .transition(DroppyTransition.element)
                     } else {
                         screen
@@ -23,7 +23,7 @@ struct FreelanceTrackerWidget: View {
                     }
                 }
                 .animation(DroppyAnimation.state, value: droplet.screen)
-                .animation(DroppyAnimation.state, value: droplet.pendingDeletion)
+                .animation(DroppyAnimation.state, value: droplet.pendingConfirmation)
             }
         }
         .padding(context.contentInsets)
@@ -40,7 +40,7 @@ struct FreelanceTrackerWidget: View {
                 if let project = droplet.currentProject {
                     TimerScreen(droplet: droplet, project: project)
                 } else {
-                    NewProjectScreen(droplet: droplet)
+                    NoProjectScreen(droplet: droplet)
                 }
             case .projects:
                 ProjectsScreen(droplet: droplet)
@@ -50,14 +50,10 @@ struct FreelanceTrackerWidget: View {
                 } else {
                     ProjectsScreen(droplet: droplet)
                 }
-            case .newProject:
-                NewProjectScreen(droplet: droplet)
-            case .editProject:
-                if let project = droplet.editingProject {
-                    EditProjectScreen(droplet: droplet, project: project)
-                } else {
-                    ProjectsScreen(droplet: droplet)
-                }
+            case .newProject, .editProject:
+                ProjectFlowScreen(droplet: droplet)
+            case .renameSession:
+                SessionRenameScreen(droplet: droplet)
             case .analytics:
                 AnalyticsScreen(droplet: droplet)
             }
@@ -126,12 +122,16 @@ struct ProjectBadge: View {
 
     var body: some View {
         Button(action: action) {
-            Text(verbatim: project.name)
-                .font(.system(size: fontSize, weight: .medium))
-                .lineLimit(1)
-                .foregroundStyle(project.color.color)
-                .padding(.horizontal, DroppySpacing.md)
-                .frame(height: height)
+            HStack(spacing: DroppySpacing.xs) {
+                Image(systemName: project.icon.symbol)
+                    .font(.system(size: fontSize - 1, weight: .semibold))
+                Text(verbatim: project.name)
+                    .font(.system(size: fontSize, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(project.color.color)
+            .padding(.horizontal, DroppySpacing.md)
+            .frame(height: height)
         }
         .buttonStyle(DroppyGlassButtonStyle(fill: .tinted(project.color.color)))
         .scaleEffect(isHovering ? 1.08 : 1)
@@ -234,6 +234,7 @@ struct ListCard: View {
     let title: String
 
     let titleColor: Color?
+    var titleSymbol: String? = nil
     let caption: String
     let isCurrent: Bool
     let select: () -> Void
@@ -243,16 +244,16 @@ struct ListCard: View {
 
     @State private var isHovering = false
 
-    private var controlsWidth: CGFloat {
-        let count = CGFloat(1 + (edit == nil ? 0 : 1) + (analytics == nil ? 0 : 1))
-        return count * 20 + (count - 1) * DroppySpacing.xs
-    }
-
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Button(action: select) {
                 VStack(alignment: .leading, spacing: DroppySpacing.xsm) {
                     HStack(spacing: DroppySpacing.xs) {
+                        if let titleSymbol {
+                            Image(systemName: titleSymbol)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(titleColor ?? AdaptiveColors.notchSurfacePrimaryText)
+                        }
                         Text(verbatim: title)
                             .font(.system(size: 13, weight: .semibold))
                             .lineLimit(1)
@@ -265,7 +266,6 @@ struct ListCard: View {
                                 .opacity(isHovering ? 0 : 1)
                         }
                     }
-                    .padding(.trailing, isHovering ? controlsWidth : 0)
                     .frame(height: 16)
                     Text(verbatim: headline)
                         .font(.system(size: 20, weight: .semibold, design: .rounded))
@@ -287,9 +287,10 @@ struct ListCard: View {
                     .lineLimit(1)
                     .frame(height: 14)
                 }
-                .padding(DroppySpacing.sm)
+                .padding(.vertical, DroppySpacing.sm)
+                .padding(.horizontal, DroppySpacing.mdl)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: FreelanceTrackerDroplet.cardHeight)
+                .frame(height: FreelanceTrackerDroplet.sessionCardHeight)
                 .background(
                     RoundedRectangle(cornerRadius: DroppyRadius.medium, style: .continuous)
                         .fill(isHovering ? AdaptiveColors.notchSurfaceCardHoverFill : AdaptiveColors.notchSurfaceCardFill)
@@ -336,10 +337,12 @@ struct ListCard: View {
 
 struct CardRow<Item: Identifiable, Card: View>: View {
     let items: [Item]
+    let height: CGFloat
     let card: (Item) -> Card
 
-    init(items: [Item], @ViewBuilder card: @escaping (Item) -> Card) {
+    init(items: [Item], height: CGFloat, @ViewBuilder card: @escaping (Item) -> Card) {
         self.items = items
+        self.height = height
         self.card = card
     }
 
@@ -351,82 +354,124 @@ struct CardRow<Item: Identifiable, Card: View>: View {
                 }
             }
         }
-        .frame(height: FreelanceTrackerDroplet.cardHeight)
+        .frame(height: height)
     }
 }
 
 struct EmptyNote: View {
     let text: String
+    var height: CGFloat = FreelanceTrackerDroplet.sessionCardHeight
 
     var body: some View {
         Text(verbatim: text)
             .font(.system(size: 12))
             .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
             .frame(maxWidth: .infinity)
-            .frame(height: FreelanceTrackerDroplet.cardHeight)
+            .frame(height: height)
     }
 }
 
-private struct ConfirmDeleteScreen: View {
+private struct ConfirmScreen: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
-    let deletion: PendingDeletion
+    let confirmation: PendingConfirmation
+    let compact: Bool
 
     private var title: String {
-        switch deletion {
-        case .project(let id): return "Delete \u{201C}\(droplet.project(id)?.name ?? "this project")\u{201D}?"
-        case .session(let id): return "Delete \u{201C}\(droplet.session(id)?.name ?? "this session")\u{201D}?"
+        switch confirmation {
+        case .deleteProject(let id): return "Delete \u{201C}\(droplet.project(id)?.name ?? "this project")\u{201D}?"
+        case .deleteSession(let id): return "Delete \u{201C}\(droplet.session(id)?.name ?? "this session")\u{201D}?"
+        case .newSession: return droplet.startsSessionsRunning ? "Start a new session?" : "Create a new session?"
+        case .switchProject(let id): return "Switch to \u{201C}\(droplet.project(id)?.name ?? "this project")\u{201D}?"
         }
     }
 
     private var note: String {
-        switch deletion {
-        case .project(let id):
+        switch confirmation {
+        case .deleteProject(let id):
             let count = droplet.sessions(of: id).count
             let total = droplet.totalSeconds(of: id)
             guard count > 0 else { return "It has no sessions yet." }
             return "\(count) session\(count == 1 ? "" : "s") and \(TrackerClock.brief(total)) go with it."
-        case .session(let id):
+        case .deleteSession(let id):
             guard let session = droplet.session(id) else { return "" }
             let seconds = session.duration(at: droplet.now)
             let money = droplet.project(session.projectID)?.formattedEarnings(for: seconds) ?? ""
             return "\(TrackerClock.brief(seconds)) and \(money) go with it."
+        case .newSession(let id):
+            if let running = droplet.runningSession {
+                let place = running.projectID == id ? "" : " on \(droplet.project(running.projectID)?.name ?? "another project")"
+                return droplet.startsSessionsRunning
+                    ? "\u{201C}\(running.name)\u{201D}\(place) is running and will be paused."
+                    : "\u{201C}\(running.name)\u{201D}\(place) keeps running."
+            }
+            let count = droplet.sessions(of: id).count
+            return "It will be \u{201C}Session \(count + 1)\u{201D} on \(droplet.project(id)?.name ?? "this project")."
+        case .switchProject:
+            guard let running = droplet.runningSession else { return "" }
+            let name = droplet.project(running.projectID)?.name ?? "another project"
+            return "\u{201C}\(running.name)\u{201D} on \(name) is running and keeps running."
+        }
+    }
+
+    private var confirmTitle: String {
+        switch confirmation {
+        case .deleteProject, .deleteSession: return "Delete"
+        case .newSession: return droplet.startsSessionsRunning ? "Start" : "Create"
+        case .switchProject: return "Switch"
+        }
+    }
+
+    private var isDestructive: Bool {
+        switch confirmation {
+        case .deleteProject, .deleteSession: return true
+        case .newSession, .switchProject: return false
+        }
+    }
+
+    private var accent: Color {
+        switch confirmation {
+        case .newSession(let id), .switchProject(let id):
+            return droplet.project(id)?.color.color ?? .red
+        case .deleteProject, .deleteSession:
+            return .red
         }
     }
 
     var body: some View {
-        VStack(spacing: DroppySpacing.md) {
+        let buttonHeight: CGFloat = compact ? 24 : FreelanceTrackerDroplet.navHeight
+        VStack(spacing: compact ? DroppySpacing.sm : DroppySpacing.md) {
             Spacer(minLength: 0)
             VStack(spacing: DroppySpacing.xs) {
                 Text(verbatim: title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: compact ? 12 : 14, weight: .semibold))
                     .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+                    .lineLimit(1)
                 Text(verbatim: note)
-                    .font(.system(size: 11))
+                    .font(.system(size: compact ? 10 : 11))
                     .monospacedDigit()
                     .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                    .lineLimit(compact ? 2 : 1)
             }
             .multilineTextAlignment(.center)
-            .lineLimit(1)
             HStack(spacing: DroppySpacing.sm) {
                 Button {
-                    droplet.cancelDeletion()
+                    droplet.cancelConfirmation()
                 } label: {
                     Text("Cancel")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, DroppySpacing.lg)
-                        .frame(height: FreelanceTrackerDroplet.navHeight)
+                        .font(.system(size: compact ? 11 : 12, weight: .semibold))
+                        .padding(.horizontal, compact ? DroppySpacing.md : DroppySpacing.lg)
+                        .frame(height: buttonHeight)
                 }
                 .buttonStyle(DroppyGlassButtonStyle())
-                .keyboardShortcut(.cancelAction)
                 Button {
-                    droplet.confirmDeletion()
+                    droplet.confirmPending()
                 } label: {
-                    Text("Delete")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, DroppySpacing.lg)
-                        .frame(height: FreelanceTrackerDroplet.navHeight)
+                    Text(verbatim: confirmTitle)
+                        .font(.system(size: compact ? 11 : 12, weight: .semibold))
+                        .padding(.horizontal, compact ? DroppySpacing.md : DroppySpacing.lg)
+                        .frame(height: buttonHeight)
                 }
-                .buttonStyle(DroppyGlassButtonStyle(fill: .tinted(Color.red)))
+                .buttonStyle(VividGlassButtonStyle(accent: isDestructive ? nil : accent, destructive: isDestructive))
                 .accessibilityLabel(title)
             }
             Spacer(minLength: 0)
@@ -434,6 +479,214 @@ private struct ConfirmDeleteScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+struct SessionNameLine: View {
+    @ObservedObject var droplet: FreelanceTrackerDroplet
+    let project: Project
+    let session: WorkSession?
+
+    var body: some View {
+        let isFresh = session != nil && session?.id == droplet.freshSessionID
+        ZStack(alignment: .leading) {
+            if isFresh, let session {
+                HStack(spacing: DroppySpacing.xs) {
+                    Image(systemName: "checkmark.circle.fill")
+                    Text(verbatim: "\(session.name) \(session.isRunning ? "started" : "created")")
+                }
+                .foregroundStyle(project.color.color)
+                .transition(DroppyTransition.element)
+            } else {
+                Text(verbatim: session?.name ?? "No session yet")
+                    .id(session?.id)
+                    .transition(DroppyTransition.element)
+            }
+        }
+        .animation(DroppyAnimation.state, value: session?.id)
+        .animation(DroppyAnimation.state, value: isFresh)
+    }
+}
+
+private struct PairedFace: Hashable {
+    let confirmation: PendingConfirmation?
+    let showsProjects: Bool
+    let showsSessions: Bool
+
+    @MainActor
+    init(droplet: FreelanceTrackerDroplet) {
+        confirmation = droplet.pendingConfirmation
+        showsProjects = droplet.screen == .projects
+        showsSessions = droplet.screen == .sessions
+    }
+}
+
+struct ProjectCard: View {
+    let project: Project
+    let isRunning: Bool
+    let headline: String
+    let detailLabel: String
+    let detail: String
+    let select: () -> Void
+    let analytics: () -> Void
+    let edit: () -> Void
+    let delete: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        let color = project.color.color
+        ZStack(alignment: .topTrailing) {
+            Button(action: select) {
+                VStack(alignment: .leading, spacing: DroppySpacing.smd) {
+                    HStack(spacing: DroppySpacing.xsm) {
+                        Image(systemName: project.icon.symbol)
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(verbatim: project.name)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        if isRunning {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .opacity(isHovering ? 0 : 1)
+                        }
+                    }
+                    .foregroundStyle(color)
+                    .frame(height: 18)
+
+                    Text(verbatim: headline)
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+                        .frame(height: 26)
+
+                    HStack(alignment: .bottom) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(verbatim: detailLabel)
+                                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                            Text(verbatim: detail)
+                                .monospacedDigit()
+                                .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                        }
+                        Spacer(minLength: DroppySpacing.sm)
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text("Rate")
+                                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                            Text(verbatim: project.formattedRate)
+                                .monospacedDigit()
+                                .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                        }
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                }
+                .padding(.vertical, DroppySpacing.smd)
+                .padding(.horizontal, DroppySpacing.md)
+                .frame(width: FreelanceTrackerDroplet.cardWidth, height: FreelanceTrackerDroplet.projectCardHeight, alignment: .topLeading)
+                .contentShape(RoundedRectangle(cornerRadius: DroppyRadius.large, style: .continuous))
+            }
+            .buttonStyle(TintedCardButtonStyle(color: color))
+
+            HStack(spacing: DroppySpacing.xs) {
+                Button(action: analytics) {
+                    Image(systemName: "chart.bar")
+                }
+                .buttonStyle(DroppyCircleButtonStyle(size: 20))
+                .help("Analytics")
+                .accessibilityLabel("Analytics for \(project.name)")
+                Button(action: edit) {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(DroppyCircleButtonStyle(size: 20))
+                .help("Edit")
+                .accessibilityLabel("Edit \(project.name)")
+                Button(action: delete) {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(DroppyCircleButtonStyle(size: 20, destructive: true, solidFill: nil, foregroundColorOverride: nil))
+                .help("Delete")
+                .accessibilityLabel("Delete \(project.name)")
+            }
+            .padding(DroppySpacing.xsm)
+            .opacity(isHovering ? 1 : 0)
+            .allowsHitTesting(isHovering)
+        }
+        .frame(width: FreelanceTrackerDroplet.cardWidth)
+        .onHover { hovering in
+            withAnimation(DroppyAnimation.hover) { isHovering = hovering }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct TintedCardButtonStyle: ButtonStyle {
+    let color: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        TintedCardLabel(configuration: configuration, color: color)
+    }
+}
+
+private struct TintedCardLabel: View {
+    let configuration: ButtonStyleConfiguration
+    let color: Color
+
+    @State private var isHovering = false
+
+    var body: some View {
+        configuration.label
+            .droppyGlassControlChrome(
+                shape: AnyShape(RoundedRectangle(cornerRadius: DroppyRadius.large, style: .continuous)),
+                fill: .tinted(color),
+                isHovering: isHovering,
+                isPressed: configuration.isPressed
+            )
+            .onHover { isHovering = $0 }
+    }
+}
+
+struct VerticalFadingScroll<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    @State private var offset: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+
+    private static var fadeHeight: CGFloat { 18 }
+
+    var body: some View {
+        let fadesTop = offset > 1
+        let fadesBottom = contentHeight - viewportHeight - offset > 1
+        ScrollView(.vertical, showsIndicators: false) {
+            content()
+                .onGeometryChange(for: ScrollExtent.self) { proxy in
+                    ScrollExtent(offset: -proxy.frame(in: .named(verticalFadingScrollSpace)).minY, width: proxy.size.height)
+                } action: { extent in
+                    offset = extent.offset
+                    contentHeight = extent.width
+                }
+        }
+        .coordinateSpace(name: verticalFadingScrollSpace)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            viewportHeight = height
+        }
+        .mask(
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: fadesTop ? Self.fadeHeight : 0)
+                Rectangle()
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: fadesBottom ? Self.fadeHeight : 0)
+            }
+        )
+        .animation(DroppyAnimation.state, value: fadesTop)
+        .animation(DroppyAnimation.state, value: fadesBottom)
+    }
+}
+
+private let verticalFadingScrollSpace = "verticalFadingScroll"
 
 private struct MenuScreen: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
@@ -517,7 +770,7 @@ private struct TimerScreen: View {
         let seconds = session?.duration(at: droplet.now) ?? 0
         let isRunning = session?.isRunning ?? false
 
-        VStack(spacing: DroppySpacing.sm) {
+        VStack(spacing: DroppySpacing.md) {
             NavRow(back: { droplet.show(.menu) }) {
                 ProjectBadge(project: project, height: FreelanceTrackerDroplet.navHeight) { droplet.show(.projects) }
             } trailing: {
@@ -556,7 +809,7 @@ private struct TimerScreen: View {
 
                 Button {
                     bounce($isCelebrating)
-                    droplet.newSession(on: project.id)
+                    droplet.requestNewSession(on: project.id)
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -575,12 +828,7 @@ private struct TimerScreen: View {
 
             HStack(spacing: DroppySpacing.sm) {
                 SessionBars(sessions: droplet.sessions(of: project.id), currentID: session?.id, now: droplet.now)
-                ZStack(alignment: .leading) {
-                    Text(verbatim: session?.name ?? "No session yet")
-                        .id(session?.id)
-                        .transition(DroppyTransition.element)
-                }
-                .animation(DroppyAnimation.state, value: session?.id)
+                SessionNameLine(droplet: droplet, project: project, session: session)
                 Spacer(minLength: DroppySpacing.md)
                 Text(verbatim: project.formattedRate)
                     .monospacedDigit()
@@ -611,27 +859,26 @@ private struct ProjectsScreen: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
             } trailing: {
-                CornerButton(systemImage: "plus", help: "New project") { droplet.show(.newProject) }
+                CornerButton(systemImage: "plus", help: "New project") { droplet.startNewProject() }
             }
 
             if droplet.projects.isEmpty {
-                EmptyNote(text: "No projects yet. Press the plus to add one.")
+                EmptyNote(text: "No projects yet. Press the plus to add one.", height: FreelanceTrackerDroplet.projectCardHeight)
             } else {
-                CardRow(items: droplet.projects) { project in
+                CardRow(items: droplet.projects, height: FreelanceTrackerDroplet.projectCardHeight) { project in
                     let total = droplet.totalSeconds(of: project.id)
-                    let figures = droplet.ordered(time: TrackerClock.full(total), money: project.formattedEarnings(for: total, compact: true))
-                    ListCard(
+                    let money = project.formattedEarnings(for: total, compact: true)
+                    let time = TrackerClock.full(total)
+                    ProjectCard(
+                        project: project,
                         isRunning: droplet.sessions(of: project.id).contains { $0.isRunning },
-                        headline: figures.first,
-                        detail: figures.second,
-                        title: project.name,
-                        titleColor: project.color.color,
-                        caption: project.formattedRate,
-                        isCurrent: project.id == droplet.currentProject?.id,
-                        select: { droplet.open(project.id) },
+                        headline: droplet.moneyFirst ? money : time,
+                        detailLabel: droplet.moneyFirst ? "Time spent" : "Earned",
+                        detail: droplet.moneyFirst ? time : money,
+                        select: { droplet.requestOpen(project.id) },
                         analytics: { droplet.showAnalytics(for: project.id) },
                         edit: { droplet.edit(project.id) },
-                        delete: { droplet.askToDelete(.project(project.id)) }
+                        delete: { droplet.ask(.deleteProject(project.id)) }
                     )
                 }
             }
@@ -652,13 +899,13 @@ private struct SessionsScreen: View {
                     .lineLimit(1)
                     .foregroundStyle(project.color.color)
             } trailing: {
-                CornerButton(systemImage: "plus", help: "New session") { droplet.newSession(on: project.id) }
+                CornerButton(systemImage: "plus", help: "New session") { droplet.requestNewSession(on: project.id) }
             }
 
             if sessions.isEmpty {
                 EmptyNote(text: "No sessions yet. Press the plus to start one.")
             } else {
-                CardRow(items: sessions) { session in
+                CardRow(items: sessions, height: FreelanceTrackerDroplet.sessionCardHeight) { session in
                     let seconds = session.duration(at: droplet.now)
                     let figures = droplet.ordered(time: TrackerClock.full(seconds), money: project.formattedEarnings(for: seconds, compact: true))
                     ListCard(
@@ -670,207 +917,10 @@ private struct SessionsScreen: View {
                         caption: session.dayLabel,
                         isCurrent: session.id == droplet.currentSession(of: project.id)?.id,
                         select: { droplet.select(session.id) },
-                        delete: { droplet.askToDelete(.session(session.id)) }
+                        edit: { droplet.startRenamingSession(session.id) },
+                        delete: { droplet.ask(.deleteSession(session.id)) }
                     )
                 }
-            }
-        }
-    }
-}
-
-private struct ProjectForm: View {
-    let title: String
-    let titleColor: Color
-    let note: String
-    let confirm: String
-    let back: (() -> Void)?
-    let initialRate: Double
-    let initialCurrency: TrackerCurrency
-    let initialColor: ProjectColor
-    let commit: (Double, TrackerCurrency, ProjectColor) -> Void
-
-    @State private var rate: Double = 50
-    @State private var currency = TrackerCurrency.usd
-    @State private var color = ProjectColor.cyan
-
-    private static let labelWidth: CGFloat = 36
-
-    var body: some View {
-        VStack(spacing: DroppySpacing.sm) {
-            NavRow(back: back) {
-                Text(verbatim: title)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                    .foregroundStyle(titleColor)
-            } trailing: {
-                EmptyView()
-            }
-
-            HStack(spacing: DroppySpacing.md) {
-                formLabel("Rate")
-                Slider(
-                    value: Binding(
-                        get: { rate },
-                        set: { rate = ($0 / 5).rounded() * 5 }
-                    ),
-                    in: 5...500
-                )
-                .controlSize(.small)
-                .tint(AdaptiveColors.notchSurfacePrimaryText)
-                Text(verbatim: currency.formatRate(rate))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
-                    .frame(width: 84, alignment: .trailing)
-            }
-            .frame(height: FreelanceTrackerDroplet.formRowHeight)
-
-            HStack(spacing: DroppySpacing.md) {
-                formLabel("In")
-                CurrencyTabs(selected: $currency)
-            }
-            .frame(height: FreelanceTrackerDroplet.formRowHeight)
-
-            HStack(spacing: DroppySpacing.md) {
-                formLabel("Color")
-                ColorSwatches(selected: $color)
-                Spacer(minLength: 0)
-            }
-            .frame(height: FreelanceTrackerDroplet.formRowHeight)
-
-            HStack {
-                Text(verbatim: note)
-                    .font(.system(size: 11))
-                    .lineLimit(1)
-                    .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-                Spacer(minLength: DroppySpacing.md)
-                Button(confirm) {
-                    commit(rate, currency, color)
-                }
-                .buttonStyle(DroppyAccentButtonStyle(size: .small))
-            }
-            .frame(height: FreelanceTrackerDroplet.formRowHeight)
-        }
-        .onAppear {
-            rate = initialRate
-            currency = initialCurrency
-            color = initialColor
-        }
-    }
-
-    private func formLabel(_ text: String) -> some View {
-        Text(verbatim: text)
-            .font(.system(size: 12))
-            .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
-            .frame(width: Self.labelWidth, alignment: .leading)
-    }
-}
-
-private struct NewProjectScreen: View {
-    @ObservedObject var droplet: FreelanceTrackerDroplet
-
-    private var canGoBack: Bool { !droplet.projects.isEmpty }
-
-    var body: some View {
-        ProjectForm(
-            title: canGoBack ? "New project" : "Your first project",
-            titleColor: AdaptiveColors.notchSurfaceSecondaryText,
-            note: "Named Project \(droplet.projects.count + 1). Rename it in Settings.",
-            confirm: "Create",
-            back: canGoBack ? { droplet.show(.projects) } : nil,
-            initialRate: droplet.defaultRate,
-            initialCurrency: droplet.defaultCurrency,
-            initialColor: ProjectColor.suggested(forProjectNumber: droplet.projects.count + 1)
-        ) { rate, currency, color in
-            droplet.createProject(rate: rate, currency: currency, color: color)
-        }
-    }
-}
-
-private struct EditProjectScreen: View {
-    @ObservedObject var droplet: FreelanceTrackerDroplet
-    let project: Project
-
-    var body: some View {
-        ProjectForm(
-            title: project.name,
-            titleColor: project.color.color,
-            note: "Rename it in Settings.",
-            confirm: "Save",
-            back: { droplet.show(.projects) },
-            initialRate: project.rate,
-            initialCurrency: project.currency,
-            initialColor: project.color
-        ) { rate, currency, color in
-            droplet.updateProject(project.id, rate: rate, currency: currency, color: color)
-        }
-        .id(project.id)
-    }
-}
-
-private struct CurrencyTabs: View {
-    @Binding var selected: TrackerCurrency
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            FadingScroll {
-                HStack(spacing: DroppySpacing.xs) {
-                    ForEach(TrackerCurrency.all) { currency in
-                        let isSelected = currency == selected
-                        Button {
-                            withAnimation(DroppyAnimation.segmentedSelection) { selected = currency }
-                        } label: {
-                            Text(verbatim: currency.code)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(isSelected ? AdaptiveColors.dynamicIslandBackgroundAuto : AdaptiveColors.notchSurfaceSecondaryText)
-                                .padding(.horizontal, DroppySpacing.sm)
-                                .frame(height: 22)
-                                .background(
-                                    Capsule().fill(isSelected ? AdaptiveColors.notchSurfacePrimaryText : AdaptiveColors.notchSurfaceCardFill)
-                                )
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .help(currency.name)
-                        .accessibilityLabel(currency.name)
-                        .accessibilityAddTraits(isSelected ? .isSelected : [])
-                        .id(currency.code)
-                    }
-                }
-            }
-            .onAppear { proxy.scrollTo(selected.code, anchor: .center) }
-        }
-    }
-}
-
-private struct ColorSwatches: View {
-    @Binding var selected: ProjectColor
-
-    var body: some View {
-        HStack(spacing: DroppySpacing.sm) {
-            ForEach(ProjectColor.allCases) { color in
-                let isSelected = color == selected
-                Button {
-                    withAnimation(DroppyAnimation.segmentedSelection) { selected = color }
-                } label: {
-                    Circle()
-                        .fill(color.color)
-                        .frame(width: 18, height: 18)
-                        .overlay {
-                            if isSelected {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(AdaptiveColors.dynamicIslandBackgroundAuto)
-                                    .transition(DroppyTransition.element)
-                            }
-                        }
-                        .scaleEffect(isSelected ? 1.2 : 1)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help(color.name)
-                .accessibilityLabel(color.name)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
     }
@@ -882,18 +932,22 @@ private struct PairedView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Group {
-                if droplet.projects.isEmpty {
+                if let confirmation = droplet.pendingConfirmation {
+                    ConfirmScreen(droplet: droplet, confirmation: confirmation, compact: true)
+                } else if droplet.projects.isEmpty {
                     PairedEmptyView()
                 } else if droplet.screen == .projects {
                     PairedProjectsView(droplet: droplet)
+                } else if droplet.screen == .sessions, let project = droplet.currentProject {
+                    PairedSessionsView(droplet: droplet, project: project)
                 } else if let project = droplet.currentProject {
                     PairedTimerView(droplet: droplet, project: project)
                 }
             }
-            .id(droplet.screen == .projects)
+            .id(PairedFace(droplet: droplet))
             .transition(DroppyTransition.element)
         }
-        .animation(DroppyAnimation.state, value: droplet.screen == .projects)
+        .animation(DroppyAnimation.state, value: PairedFace(droplet: droplet))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, FreelanceTrackerDroplet.screenTop)
         .padding(.bottom, FreelanceTrackerDroplet.screenBottom)
@@ -953,7 +1007,7 @@ private struct PairedTimerView: View {
                 }
 
                 Button {
-                    droplet.newSession(on: project.id)
+                    droplet.requestNewSession(on: project.id)
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -970,16 +1024,125 @@ private struct PairedTimerView: View {
             Spacer(minLength: DroppySpacing.xs)
 
             HStack(spacing: DroppySpacing.xsm) {
-                SessionBars(sessions: droplet.sessions(of: project.id), currentID: session?.id, now: droplet.now)
-                Text(verbatim: session?.name ?? "No session yet")
-                Spacer(minLength: DroppySpacing.sm)
+                PairedSessionPill(droplet: droplet, project: project, session: session)
+                Spacer(minLength: DroppySpacing.xs)
                 Text(verbatim: project.formattedRate)
                     .monospacedDigit()
+                    .padding(.horizontal, DroppySpacing.sm)
+                    .frame(height: PairedSessionPill.height)
+                    .droppyGlassControlChrome(shape: AnyShape(Capsule(style: .continuous)), fill: .veil)
             }
             .font(.system(size: 11, weight: .medium))
             .lineLimit(1)
             .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
-            .frame(height: 14)
+            .frame(height: PairedSessionPill.height)
+        }
+    }
+}
+
+private struct PairedSessionPill: View {
+    @ObservedObject var droplet: FreelanceTrackerDroplet
+    let project: Project
+    let session: WorkSession?
+
+    static let height: CGFloat = 22
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            droplet.show(.sessions)
+        } label: {
+            HStack(spacing: DroppySpacing.xsm) {
+                SessionBars(sessions: droplet.sessions(of: project.id), currentID: session?.id, now: droplet.now)
+                SessionNameLine(droplet: droplet, project: project, session: session)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
+            .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+            .padding(.horizontal, DroppySpacing.sm)
+            .frame(height: Self.height)
+        }
+        .buttonStyle(DroppyGlassButtonStyle())
+        .scaleEffect(isHovering ? 1.06 : 1)
+        .animation(DroppyAnimation.hoverScale, value: isHovering)
+        .onHover { isHovering = $0 }
+        .help("Choose a session")
+        .accessibilityLabel("Session \(session?.name ?? "none"), choose another")
+    }
+}
+
+private struct PairedSessionsView: View {
+    @ObservedObject var droplet: FreelanceTrackerDroplet
+    let project: Project
+
+    var body: some View {
+        let current = droplet.currentSession(of: project.id)?.id
+        VStack(spacing: DroppySpacing.xs) {
+            HStack {
+                Button {
+                    droplet.show(.timer)
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(DroppyCircleButtonStyle(size: 20))
+                .help("Back")
+                .accessibilityLabel("Back")
+                Spacer(minLength: 0)
+                Text(verbatim: project.name)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(project.color.color)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Color.clear.frame(width: 20, height: 20)
+            }
+            .frame(height: 20)
+
+            let sessions = droplet.sessions(of: project.id)
+            if sessions.isEmpty {
+                Text("No sessions yet")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VerticalFadingScroll {
+                    VStack(spacing: 2) {
+                        ForEach(sessions) { session in
+                            let isCurrent = session.id == current
+                            Button {
+                                droplet.select(session.id)
+                            } label: {
+                                HStack(spacing: DroppySpacing.xsm) {
+                                    if session.isRunning {
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 7, weight: .bold))
+                                            .foregroundStyle(project.color.color)
+                                    }
+                                    Text(verbatim: session.name)
+                                        .font(.system(size: 12, weight: isCurrent ? .semibold : .medium))
+                                        .foregroundStyle(isCurrent ? AdaptiveColors.notchSurfacePrimaryText : AdaptiveColors.notchSurfaceSecondaryText)
+                                    Spacer(minLength: DroppySpacing.sm)
+                                    Text(verbatim: TrackerClock.compact(session.duration(at: droplet.now)))
+                                        .font(.system(size: 11, design: .rounded))
+                                        .monospacedDigit()
+                                        .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                                }
+                                .lineLimit(1)
+                                .padding(.horizontal, DroppySpacing.sm)
+                                .frame(height: 22)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    RoundedRectangle(cornerRadius: DroppyRadius.small, style: .continuous)
+                                        .fill(isCurrent ? AdaptiveColors.notchSurfaceCardFill : Color.clear)
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: DroppyRadius.small, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Open \(session.name)")
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1007,12 +1170,12 @@ private struct PairedProjectsView: View {
             }
             .frame(height: 20)
 
-            ScrollView(.vertical, showsIndicators: false) {
+            VerticalFadingScroll {
                 VStack(spacing: 2) {
                     ForEach(droplet.projects) { project in
                         let isCurrent = project.id == droplet.currentProject?.id
                         Button {
-                            droplet.open(project.id)
+                            droplet.requestOpen(project.id)
                         } label: {
                             HStack(spacing: DroppySpacing.xsm) {
                                 Circle()
