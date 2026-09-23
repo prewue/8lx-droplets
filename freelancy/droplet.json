@@ -25,10 +25,11 @@
     "name": "8lx",
     "kind": "community",
     "url": "https://github.com/prewue/freelancy",
-    "avatar": "Creator.png"
+    "avatar": "Creator.png",
+    "gitlab": "prewue"
   },
   "source": {
-    "repository": "https://github.com/prewue/freelancy",
+    "repository": "https://gitlab.com/droppyformac1/droplets/-/tree/main/droplets/freelance-tracker",
     "license": "MIT"
   },
   "keywords": [
