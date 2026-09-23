@@ -711,10 +711,13 @@ enum FlowFocus {
         }
     }
 
+    /// Asks the host to make the shelf panel key; set while the droplet is active.
+    /// The host owns key status (DroppyKit 1.10.0), so the flow never calls `makeKey()`.
+    static var requestKey: (@MainActor () -> Bool)?
+
     static func ensureKey(_ window: NSWindow) -> Bool {
         if window.isKeyWindow { return true }
-        guard window.canBecomeKey else { return false }
-        window.makeKey()
+        _ = requestKey?()
         return window.isKeyWindow
     }
 }

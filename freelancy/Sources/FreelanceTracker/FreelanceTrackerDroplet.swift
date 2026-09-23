@@ -108,6 +108,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     public func activate(host: DropletHost) throws {
         self.host = host
+        FlowFocus.requestKey = { [weak self] in self?.host?.shelf.requestKeyboardFocus() ?? false }
         load()
         if projects.isEmpty, host.environment.isHarness {
             seedDemoData()
@@ -121,6 +122,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     }
 
     public func deactivate() {
+        FlowFocus.requestKey = nil
         if holdsShelf {
             _ = host?.shelf.setHoldsOpen(false)
             holdsShelf = false

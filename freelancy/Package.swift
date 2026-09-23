@@ -12,7 +12,7 @@ let package = Package(
         .library(name: "FreelanceTracker", type: .dynamic, targets: ["FreelanceTracker"])
     ],
     dependencies: [
-        .package(url: "https://gitlab.com/droppyformac1/droppykit.git", from: "1.6.0")
+        .package(url: "https://gitlab.com/droppyformac1/droppykit.git", from: "1.10.0")
     ],
     targets: [
         .target(
