@@ -6,6 +6,7 @@
 - A new project takes a few short steps right on the shelf: a name, an icon and its colour, then an hourly rate and its currency. The same steps edit it later.
 - Icons, colours and currencies are picked on the same smooth wheels: scroll, drag, click or use the arrow keys.
 - Projects are glass cards in the project's colour, with its icon, earnings, time and rate.
+- Sits beside other widgets in a shelf row at a compact height, and long sessions shrink to fit.
 - Deleting a project or a session, starting a new session and switching projects ask first, on the shelf. The questions can be switched off in Settings.
 - Analytics: two weeks of time and money as bars, the totals, and a CSV of a project's sessions in Downloads.
 - Settings follow Droppy's own form: a colour and an icon per project, rates and session lengths you can type, and deletes that ask inline.
