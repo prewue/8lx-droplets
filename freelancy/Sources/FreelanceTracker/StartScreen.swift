@@ -101,7 +101,7 @@ private struct EdgeBeam: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: nil, paused: !isActive)) { timeline in
-            let turn = timeline.date.timeIntervalSinceReferenceDate / 1.8
+            let turn = timeline.date.timeIntervalSinceReferenceDate / 2.8
             let beam = AngularGradient(
                 stops: [
                     .init(color: .clear, location: 0),
@@ -118,15 +118,15 @@ private struct EdgeBeam: View {
             let shape = Capsule(style: .continuous)
             ZStack {
                 shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 14).blur(radius: 6))
-                    .blur(radius: 6)
+                    .mask(shape.strokeBorder(lineWidth: 18).blur(radius: 9))
+                    .blur(radius: 9)
                     .opacity(0.9)
                 shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 7).blur(radius: 2))
-                    .blur(radius: 2)
+                    .mask(shape.strokeBorder(lineWidth: 9).blur(radius: 3.5))
+                    .blur(radius: 3.5)
                     .blendMode(.plusLighter)
                 shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 3.5))
+                    .mask(shape.strokeBorder(lineWidth: 2.5))
                     .blendMode(.plusLighter)
             }
             .compositingGroup()
