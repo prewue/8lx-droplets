@@ -58,9 +58,6 @@ struct FreelanceTrackerWidget: View {
                 AnalyticsScreen(droplet: droplet)
             }
         }
-        .padding(.top, FreelanceTrackerDroplet.screenTop)
-        .padding(.bottom, FreelanceTrackerDroplet.screenBottom)
-        .padding(.horizontal, FreelanceTrackerDroplet.screenSide)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -949,9 +946,6 @@ private struct PairedView: View {
         }
         .animation(DroppyAnimation.state, value: PairedFace(droplet: droplet))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, FreelanceTrackerDroplet.screenTop)
-        .padding(.bottom, FreelanceTrackerDroplet.screenBottom)
-        .padding(.horizontal, FreelanceTrackerDroplet.screenSide)
     }
 }
 

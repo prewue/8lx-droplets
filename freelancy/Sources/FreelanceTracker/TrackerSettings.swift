@@ -8,11 +8,98 @@ struct FreelanceTrackerSettings: View {
     @State private var expandedProjectID: UUID?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DroppySpacing.lg) {
-            defaults
-            shelf
-            notch
-            projects
+        DropletSettingsPane {
+            DropletSettingsSection {
+                settingsSectionHeader("New projects")
+            } content: {
+                DropletSettingsCard {
+                    DropletSliderRow(
+                        title: "Hourly rate",
+                        value: droplet.defaultCurrency.formatRate(droplet.defaultRate),
+                        binding: droplet.defaultRateBinding,
+                        range: 1...500,
+                        step: 1
+                    )
+                    DropletControlRow(
+                        title: "Currency",
+                        infoTip: "What the rate slider on the shelf starts from. Every project picks its own when it is created."
+                    ) {
+                        CurrencyPicker(selected: droplet.defaultCurrency, showsName: true) { droplet.setDefaultCurrency($0) }
+                    }
+                }
+            }
+
+            DropletSettingsSection {
+                settingsSectionHeader("Shelf")
+            } content: {
+                DropletSettingsCard {
+                    DropletToggleRow(
+                        title: "Start new sessions running",
+                        subtitle: "Off, a new session waits on the timer until you press Start, and whatever was running keeps running.",
+                        isOn: droplet.startsSessionsRunningBinding
+                    )
+                    DropletToggleRow(
+                        title: "Ask before starting a new session",
+                        subtitle: "The plus on the timer asks first. Off, it starts the session at once.",
+                        isOn: droplet.asksBeforeNewSessionBinding
+                    )
+                    DropletToggleRow(
+                        title: "Ask before switching projects",
+                        subtitle: "Picking another project while a session runs asks first. The running session keeps running either way.",
+                        isOn: droplet.asksBeforeSwitchingBinding
+                    )
+                    DropletToggleRow(
+                        title: "Show me the money",
+                        subtitle: "The amount gets the big digits and the clock the small ones, on the timer and every card. Time is money, but money is money.",
+                        isOn: droplet.moneyFirstBinding
+                    )
+                }
+            }
+
+            DropletSettingsSection {
+                settingsSectionHeader("Notch")
+            } content: {
+                DropletSettingsCard {
+                    DropletToggleRow(
+                        title: "Keep the tracker in the notch",
+                        subtitle: "While a session runs, the clock and the money stay beside the notch. Off, they show only while the pointer is over it.",
+                        isOn: droplet.pinsLiveActivityBinding
+                    )
+                    DropletToggleRow(
+                        title: "Show a strip on start and pause",
+                        subtitle: "A brief strip on the notch when a session starts, resumes or pauses.",
+                        isOn: droplet.showsHUDBinding
+                    )
+                }
+            }
+
+            DropletSettingsSection {
+                settingsSectionHeader("Projects and sessions")
+            } content: {
+                DropletSettingsCard {
+                    if droplet.projects.isEmpty {
+                        DropletControlRow(title: "No projects yet") {
+                            DropletValuePill(text: "Add one from the shelf")
+                        }
+                    } else {
+                        ForEach(droplet.projects) { project in
+                            ProjectSettingsRow(
+                                droplet: droplet,
+                                project: project,
+                                isExpanded: expandedProjectID == project.id
+                            ) {
+                                withAnimation(DroppyAnimation.state) {
+                                    expandedProjectID = expandedProjectID == project.id ? nil : project.id
+                                }
+                            }
+                            if expandedProjectID == project.id {
+                                SessionRows(droplet: droplet, project: project)
+                            }
+                        }
+                    }
+                }
+                .droppyFlatGlassControls()
+            }
         }
         .onAppear {
             if expandedProjectID == nil {
@@ -20,108 +107,18 @@ struct FreelanceTrackerSettings: View {
             }
         }
     }
+}
 
-    private var defaults: some View {
-        VStack(alignment: .leading, spacing: DroppySpacing.sm) {
-            settingsSectionHeader("New projects")
-            DropletSettingsCard {
-                DropletSliderRow(
-                    title: "Hourly rate",
-                    value: droplet.defaultCurrency.formatRate(droplet.defaultRate),
-                    binding: droplet.defaultRateBinding,
-                    range: 1...500,
-                    step: 1
-                )
-                DropletSettingsDivider()
-                DropletControlRow(
-                    title: "Currency",
-                    infoTip: "What the rate slider on the shelf starts from. Every project picks its own when it is created."
-                ) {
-                    CurrencyMenu(selected: droplet.defaultCurrency, showsName: true) { droplet.setDefaultCurrency($0) }
-                }
-            }
-        }
-    }
-
-    private var shelf: some View {
-        VStack(alignment: .leading, spacing: DroppySpacing.sm) {
-            settingsSectionHeader("Shelf")
-            DropletSettingsCard {
-                DropletToggleRow(
-                    title: "Start new sessions running",
-                    subtitle: "Off, a new session waits on the timer until you press Start, and whatever was running keeps running.",
-                    isOn: droplet.startsSessionsRunningBinding
-                )
-                DropletSettingsDivider()
-                DropletToggleRow(
-                    title: "Ask before starting a new session",
-                    subtitle: "The plus on the timer asks first. Off, it starts the session at once.",
-                    isOn: droplet.asksBeforeNewSessionBinding
-                )
-                DropletSettingsDivider()
-                DropletToggleRow(
-                    title: "Ask before switching projects",
-                    subtitle: "Picking another project while a session runs asks first. The running session keeps running either way.",
-                    isOn: droplet.asksBeforeSwitchingBinding
-                )
-                DropletSettingsDivider()
-                DropletToggleRow(
-                    title: "Show me the money",
-                    subtitle: "The amount gets the big digits and the clock the small ones, on the timer and every card. Time is money, but money is money.",
-                    isOn: droplet.moneyFirstBinding
-                )
-            }
-        }
-    }
-
-    private var notch: some View {
-        VStack(alignment: .leading, spacing: DroppySpacing.sm) {
-            settingsSectionHeader("Notch")
-            DropletSettingsCard {
-                DropletToggleRow(
-                    title: "Keep the tracker in the notch",
-                    subtitle: "While a session runs, the clock and the money stay beside the notch. Off, they show only while the pointer is over it.",
-                    isOn: droplet.pinsLiveActivityBinding
-                )
-                DropletSettingsDivider()
-                DropletToggleRow(
-                    title: "Show a strip on start and pause",
-                    subtitle: "A brief strip on the notch when a session starts, resumes or pauses.",
-                    isOn: droplet.showsHUDBinding
-                )
-            }
-        }
-    }
-
-    private var projects: some View {
-        VStack(alignment: .leading, spacing: DroppySpacing.sm) {
-            settingsSectionHeader("Projects and sessions")
-            DropletSettingsCard {
-                if droplet.projects.isEmpty {
-                    DropletControlRow(title: "No projects yet") {
-                        Text("Add one from the shelf")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    ForEach(Array(droplet.projects.enumerated()), id: \.element.id) { index, project in
-                        if index > 0 { DropletSettingsDivider() }
-                        ProjectSettingsRow(
-                            droplet: droplet,
-                            project: project,
-                            isExpanded: expandedProjectID == project.id
-                        ) {
-                            withAnimation(DroppyAnimation.state) {
-                                expandedProjectID = expandedProjectID == project.id ? nil : project.id
-                            }
-                        }
-                        if expandedProjectID == project.id {
-                            SessionList(droplet: droplet, project: project)
-                        }
-                    }
-                }
-            }
-            .droppyFlatGlassControls()
+private extension View {
+    /// On macOS 15 and later the pane is Droppy's grouped Form and the Form pays a row's
+    /// padding; before that the rows draw their own, the way the kit's legacy rows do.
+    @ViewBuilder
+    func settingsRowPadding() -> some View {
+        if #available(macOS 15.0, *) {
+            self
+        } else {
+            padding(.horizontal, DroppySettingsLayoutMetrics.rowPadding)
+                .padding(.vertical, DroppySettingsLayoutMetrics.rowVerticalPadding)
         }
     }
 }
@@ -145,9 +142,9 @@ private struct ProjectSettingsRow: View {
             )
 
             VStack(alignment: .leading, spacing: 2) {
-                TextField("Name", text: $draftName)
+                TextField("Name", text: $draftName, prompt: Text("Name"))
+                    .labelsHidden()
                     .textFieldStyle(.plain)
-                    .font(.callout)
                     .foregroundStyle(.primary)
                     .focused($nameFocused)
                     .onSubmit { commitName() }
@@ -155,7 +152,7 @@ private struct ProjectSettingsRow: View {
                         if !focused { commitName() }
                     }
                 Text(verbatim: caption)
-                    .font(.system(size: 11))
+                    .font(.callout)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -171,16 +168,16 @@ private struct ProjectSettingsRow: View {
                 )
                 .transition(DroppyTransition.element)
             } else {
-                EditablePill(
-                    display: project.formattedRate,
-                    draft: project.rate == project.rate.rounded() ? String(Int(project.rate)) : String(project.rate),
-                    help: "Click to type the hourly rate"
+                ValueField(
+                    display: project.rate == project.rate.rounded() ? String(Int(project.rate)) : String(project.rate),
+                    width: 56,
+                    help: "The hourly rate"
                 ) { text in
                     guard let parsed = Double(text.replacingOccurrences(of: ",", with: ".")), parsed >= 0, parsed.isFinite else { return }
                     droplet.setRate(project.id, to: (parsed * 100).rounded() / 100)
                 }
 
-                CurrencyMenu(selected: project.currency, showsName: false) { droplet.setCurrency(project.id, to: $0) }
+                CurrencyPicker(selected: project.currency, showsName: false) { droplet.setCurrency(project.id, to: $0) }
 
                 Button {
                     withAnimation(DroppyAnimation.state) { confirmingDelete = true }
@@ -200,7 +197,7 @@ private struct ProjectSettingsRow: View {
                 .accessibilityLabel(isExpanded ? "Hide sessions" : "Show sessions")
             }
         }
-        .padding(DroppySettingsLayoutMetrics.rowPadding)
+        .settingsRowPadding()
         .onAppear { draftName = project.name }
         .onChange(of: project.name) { _, name in
             if !nameFocused { draftName = name }
@@ -310,26 +307,30 @@ private struct ProjectLookMenu: View {
     }
 }
 
-private struct SessionList: View {
+
+/// The expanded project's sessions, one Form row each, indented under the project's name.
+private struct SessionRows: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let project: Project
 
+    /// The look square and the gap after it, so a session lines up with its project's name.
+    static let indent: CGFloat = 28 + DroppySpacing.sm
+
     var body: some View {
         let sessions = droplet.sessions(of: project.id)
-        VStack(alignment: .leading, spacing: DroppySpacing.xs) {
-            if sessions.isEmpty {
-                Text("No sessions yet. Press Start on the shelf.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, DroppySpacing.xs)
-            }
+        if sessions.isEmpty {
+            Text("No sessions yet. Press Start on the shelf.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.leading, Self.indent)
+                .settingsRowPadding()
+                .transition(DroppyTransition.element)
+        } else {
             ForEach(sessions) { session in
                 SessionSettingsRow(droplet: droplet, project: project, session: session)
+                    .transition(DroppyTransition.element)
             }
         }
-        .padding(.horizontal, DroppySettingsLayoutMetrics.rowPadding)
-        .padding(.bottom, DroppySettingsLayoutMetrics.rowPadding)
-        .transition(DroppyTransition.element)
     }
 }
 
@@ -344,14 +345,9 @@ private struct SessionSettingsRow: View {
 
     var body: some View {
         HStack(spacing: DroppySpacing.md) {
-            if session.isRunning {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.primary)
-            }
-            TextField("Name", text: $draftName)
+            TextField("Name", text: $draftName, prompt: Text("Name"))
+                .labelsHidden()
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
                 .foregroundStyle(.primary)
                 .focused($nameFocused)
                 .onSubmit { commitName() }
@@ -359,9 +355,9 @@ private struct SessionSettingsRow: View {
                     if !focused { commitName() }
                 }
             if !confirmingDelete {
-                Text(verbatim: session.dayLabel)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                Text(verbatim: session.isRunning ? "Running" : session.dayLabel)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                     .transition(DroppyTransition.element)
             }
             Spacer(minLength: DroppySpacing.md)
@@ -369,15 +365,14 @@ private struct SessionSettingsRow: View {
                 EmptyView()
             } else if session.isRunning {
                 Text(verbatim: TrackerClock.full(session.duration(at: droplet.now)))
-                    .font(.system(size: 12, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .transition(DroppyTransition.element)
             } else {
-                EditablePill(
+                ValueField(
                     display: TrackerClock.full(session.duration(at: droplet.now)),
-                    draft: TrackerClock.full(session.duration(at: droplet.now)),
-                    help: "Click to type the length, for example 1:30 or 90"
+                    width: 72,
+                    help: "The length, for example 1:30 or 90"
                 ) { text in
                     guard let seconds = TrackerClock.parse(text) else { return }
                     droplet.setDuration(of: session.id, seconds: seconds)
@@ -385,7 +380,6 @@ private struct SessionSettingsRow: View {
                 .transition(DroppyTransition.element)
             }
             Text(verbatim: project.formattedEarnings(for: session.duration(at: droplet.now)))
-                .font(.system(size: 12, weight: .medium, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
                 .frame(minWidth: 72, alignment: .trailing)
@@ -407,10 +401,8 @@ private struct SessionSettingsRow: View {
                 .accessibilityLabel("Delete session")
             }
         }
-        .padding(.vertical, DroppySpacing.xs)
-        .padding(.horizontal, DroppySpacing.smd)
-        .background(AdaptiveColors.overlayAuto(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: DroppyRadius.small, style: .continuous))
+        .padding(.leading, SessionRows.indent)
+        .settingsRowPadding()
         .onAppear { draftName = session.name }
         .onChange(of: session.name) { _, name in
             if !nameFocused { draftName = name }
@@ -423,110 +415,63 @@ private struct SessionSettingsRow: View {
     }
 }
 
-private struct CurrencyMenu: View {
+/// The currency as the Form's own pop-up.
+private struct CurrencyPicker: View {
     let selected: TrackerCurrency
     let showsName: Bool
-    let select: (TrackerCurrency) -> Void
-
-    private var ink: Color { DroppyGlassControl.neutralInk() }
+    let select: @MainActor @Sendable (TrackerCurrency) -> Void
 
     var body: some View {
-        Menu {
+        Picker("Currency", selection: Binding(get: { selected }, set: select)) {
             ForEach(TrackerCurrency.all) { currency in
-                Button {
-                    select(currency)
-                } label: {
-                    if currency == selected {
-                        Label("\(currency.code) \(currency.symbol) · \(currency.name)", systemImage: "checkmark")
-                    } else {
-                        Text(verbatim: "\(currency.code) \(currency.symbol) · \(currency.name)")
-                    }
-                }
+                Text(verbatim: showsName ? "\(currency.code) · \(currency.name)" : currency.code)
+                    .tag(currency)
             }
-        } label: {
-            HStack(spacing: DroppySpacing.xs) {
-                Text(verbatim: showsName ? "\(selected.code) · \(selected.name)" : selected.code)
-                    .font(.system(size: 12, weight: .semibold))
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .foregroundStyle(ink)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            .frame(minHeight: DroppySettingsControlMetrics.compactTrailingControlHeight)
-            .droppyGlassControlChrome(
-                shape: AnyShape(RoundedRectangle(cornerRadius: DroppyRadius.full, style: .continuous))
-            )
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .tint(ink)
+        .pickerStyle(.menu)
+        .labelsHidden()
         .fixedSize()
         .help("Currency")
-        .accessibilityLabel("Currency, \(selected.name)")
     }
 }
 
-private struct EditablePill: View {
+/// A native text field for a number: shows the stored value, commits on Return or when it
+/// loses focus, and puts the stored value back on Escape or when the typing does not parse.
+private struct ValueField: View {
     let display: String
-    let draft: String
+    let width: CGFloat
     let help: String
     let commit: (String) -> Void
 
-    @State private var isEditing = false
     @State private var text = ""
-    @State private var isHovering = false
-    @FocusState private var fieldFocused: Bool
+    @FocusState private var focused: Bool
 
     var body: some View {
-        Group {
-            if isEditing {
-                TextField("", text: $text)
-                    .textFieldStyle(.plain)
-                    .multilineTextAlignment(.center)
-                    .focused($fieldFocused)
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.primary)
-                    .frame(minWidth: 56)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .frame(minHeight: DroppySettingsControlMetrics.compactTrailingControlHeight)
-                    .background(Capsule().fill(AdaptiveColors.overlayAuto(0.14)))
-                    .onSubmit { finish(apply: true) }
-                    .onExitCommand { finish(apply: false) }
-                    .onAppear {
-                        text = draft
-                        DispatchQueue.main.async { fieldFocused = true }
-                    }
-                    .onChange(of: fieldFocused) { _, focused in
-                        if !focused, isEditing { finish(apply: true) }
-                    }
-            } else {
-                Text(verbatim: display)
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .frame(minHeight: DroppySettingsControlMetrics.compactTrailingControlHeight)
-                    .background(Capsule().fill(AdaptiveColors.overlayAuto(isHovering ? 0.14 : 0.08)))
-                    .contentShape(Capsule())
-                    .onHover { isHovering = $0 }
-                    .onTapGesture { isEditing = true }
-                    .help(help)
+        TextField(help, text: $text)
+            .labelsHidden()
+            .textFieldStyle(.roundedBorder)
+            .multilineTextAlignment(.trailing)
+            .monospacedDigit()
+            .frame(width: width)
+            .focused($focused)
+            .onSubmit { finish() }
+            .onExitCommand {
+                text = display
+                focused = false
             }
-        }
-        .animation(DroppyAnimation.hover, value: isHovering)
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { finish() }
+            }
+            .onAppear { text = display }
+            .onChange(of: display) { _, value in text = value }
+            .help(help)
     }
 
-    private func finish(apply: Bool) {
-        guard isEditing else { return }
-        isEditing = false
-        fieldFocused = false
+    private func finish() {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if apply, !typed.isEmpty, typed != draft {
+        if !typed.isEmpty, typed != display {
             commit(typed)
         }
+        text = display
     }
 }

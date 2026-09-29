@@ -132,6 +132,12 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         ticker?.cancel()
         ticker = nil
         activitySubject.send(nil)
+        // Re-enabled, the droplet starts at the menu, not inside a flow or a question it left.
+        draft = nil
+        sessionRename = nil
+        pendingConfirmation = nil
+        freshSessionID = nil
+        screen = .menu
         host = nil
     }
 
@@ -785,9 +791,9 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 }
 
 extension FreelanceTrackerDroplet: ShelfWidgetProviding {
-    static let screenSide: CGFloat = 10
-    static let screenTop: CGFloat = 6
-    static let screenBottom: CGFloat = 8
+    /// The height `context.contentInsets` takes: 8 top and bottom under the host's
+    /// 18pt card corner, none on a solo island card. The height budgets the larger.
+    static let hostInsets: CGFloat = DroppySpacing.sm * 2
     static let navHeight: CGFloat = 28
 
     static let cardWidth: CGFloat = 176
@@ -806,7 +812,7 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let pageDotsGap: CGFloat = 16
 
     var widgetHeight: CGFloat {
-        let frame = Self.screenTop + Self.screenBottom
+        let frame = Self.hostInsets
         let gap = DroppySpacing.sm
         switch screen {
         case .menu:
