@@ -291,7 +291,7 @@ struct ListCard: View {
                     .frame(height: 14)
                 }
                 .padding(.vertical, DroppySpacing.sm)
-                .padding(.horizontal, DroppySpacing.mdl)
+                .padding(.horizontal, DroppySpacing.md)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: DroppyRadius.medium, style: .continuous)
@@ -553,7 +553,7 @@ struct ProjectCard: View {
                     .foregroundStyle(color)
                     .frame(height: 16)
 
-                    Spacer(minLength: 2)
+                    Spacer(minLength: DroppySpacing.xsm)
 
                     Text(verbatim: headline)
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
@@ -562,7 +562,7 @@ struct ProjectCard: View {
                         .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
                         .frame(height: 24)
 
-                    Spacer(minLength: 2)
+                    Spacer(minLength: DroppySpacing.xsm)
 
                     HStack(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: 1) {
@@ -584,7 +584,7 @@ struct ProjectCard: View {
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                 }
-                .padding(.vertical, DroppySpacing.sm)
+                .padding(.vertical, DroppySpacing.smd)
                 .padding(.horizontal, DroppySpacing.md)
                 .frame(width: FreelanceTrackerDroplet.cardWidth, alignment: .topLeading)
                 .frame(maxHeight: .infinity, alignment: .topLeading)

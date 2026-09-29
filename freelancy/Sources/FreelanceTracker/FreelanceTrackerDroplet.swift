@@ -828,10 +828,10 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let cardWidth: CGFloat = 176
     /// The card row's share of the Projects and Sessions screens. Both screens come to the
     /// timer's height, so moving between them never resizes the shelf; the cards fill it.
-    static let cardRowHeight: CGFloat = 90
+    static let cardRowHeight: CGFloat = 100
     static let cardSpacing: CGFloat = 12
 
-    static let timerRowHeight: CGFloat = 58
+    static let timerRowHeight: CGFloat = 68
 
     /// The widget in a grouped row: the paired timer's badge, clock and bottom row (94) and the
     /// host's insets. The paired lists, the empty state and a compact question fit in it too.
