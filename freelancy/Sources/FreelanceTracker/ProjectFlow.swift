@@ -369,13 +369,21 @@ private struct ColorStep: View {
 private struct ColorOrb: View {
     let color: Color
 
+    @Environment(\.wheelBlurCopy) private var isBlurCopy
+
     var body: some View {
         let shape = Circle()
-        Color.clear
-            .frame(width: 44, height: 44)
-            .droppyGlassControlChrome(shape: AnyShape(shape), fill: .tinted(color))
-            .background(shape.fill(color.opacity(0.7)))
-            .saturation(1.2)
+        if isBlurCopy {
+            shape
+                .fill(color.opacity(0.85))
+                .frame(width: 44, height: 44)
+        } else {
+            Color.clear
+                .frame(width: 44, height: 44)
+                .droppyGlassControlChrome(shape: AnyShape(shape), fill: .tinted(color))
+                .background(shape.fill(color.opacity(0.7)))
+                .saturation(1.2)
+        }
     }
 }
 
@@ -713,15 +721,27 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
     let shape: WheelShape
     @ViewBuilder let cell: (Item, Bool) -> Cell
 
+    @State private var width: CGFloat = 0
+
     private static var fadeWidth: CGFloat { 96 }
     private static var reach: Int { 6 }
 
+    /// The items a copy of the edge blur draws: all of them for the sharp copy, and for a blurred
+    /// one only those that reach into the part of the band it covers, so the copies that exist
+    /// for the outer edge draw an item or two instead of the whole ring.
+    private func virtuals(for copy: EdgeBlurCopy, position: CGFloat) -> [Int] {
+        let centre = Int(position.rounded())
+        let all = Array((centre - Self.reach)...(centre + Self.reach))
+        guard copy.step > 0, width > 0 else { return all }
+        let threshold = width / 2 - copy.reach - pitch / 2
+        return all.filter { abs(shape.offset(CGFloat($0) - position, pitch: pitch)) >= threshold }
+    }
+
     var body: some View {
         let position = engine.position
-        let centre = Int(position.rounded())
-        ProgressiveEdgeBlur(maxRadius: shape.edgeBlur, band: shape.edgeBlurBand) {
+        ProgressiveEdgeBlur(maxRadius: shape.edgeBlur, band: shape.edgeBlurBand) { copy in
             ZStack {
-                ForEach((centre - Self.reach)...(centre + Self.reach), id: \.self) { virtual in
+                ForEach(virtuals(for: copy, position: position), id: \.self) { virtual in
                     let t = CGFloat(virtual) - position
                     let distance = abs(t)
                     cell(items[engine.wrap(virtual)], distance < 0.5)
@@ -735,6 +755,7 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 4)
@@ -777,20 +798,25 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
 /// rising radii, each copy masked to a triangular weight across the edge band, and the copies
 /// are added (`plusLighter`) so the weights sum to one everywhere and the blur changes
 /// continuously with x. Only the sharp copy takes clicks or reaches VoiceOver.
+///
+/// It stays cheap by drawing as little as it can: `content` learns which copy it draws, so it
+/// can leave out what that copy's mask throws away (`EdgeBlurCopy.reach`), and blurred copies carry
+/// `wheelBlurCopy` so a cell can drop its glass there, where nobody could tell.
 struct ProgressiveEdgeBlur<Content: View>: View {
     let maxRadius: CGFloat
     let band: CGFloat
-    @ViewBuilder let content: () -> Content
+    @ViewBuilder let content: (EdgeBlurCopy) -> Content
 
-    private static var steps: Int { 4 }
+    private static var steps: Int { 3 }
 
     var body: some View {
         if maxRadius <= 0 {
-            content()
+            content(EdgeBlurCopy(step: 0, reach: .infinity))
         } else {
             ZStack {
                 ForEach(0...Self.steps, id: \.self) { step in
-                    content()
+                    content(copy(step))
+                        .environment(\.wheelBlurCopy, step != 0)
                         .blur(radius: radius(step))
                         .mask(weight(step))
                         .blendMode(step == 0 ? .normal : .plusLighter)
@@ -800,6 +826,12 @@ struct ProgressiveEdgeBlur<Content: View>: View {
             }
             .compositingGroup()
         }
+    }
+
+    private func copy(_ step: Int) -> EdgeBlurCopy {
+        guard step > 0 else { return EdgeBlurCopy(step: 0, reach: .infinity) }
+        let inner = CGFloat(step - 1) / CGFloat(Self.steps)
+        return EdgeBlurCopy(step: step, reach: band * (1 - inner) + radius(step) * 2)
     }
 
     /// Radii rise slowly first, so the blur eases in from the inner edge of the band.
@@ -829,6 +861,19 @@ struct ProgressiveEdgeBlur<Content: View>: View {
         .sorted { $0.location < $1.location }
         return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
     }
+}
+
+/// Which copy of `ProgressiveEdgeBlur` a view is drawing.
+struct EdgeBlurCopy {
+    /// 0 is the sharp copy; the highest step the most blurred.
+    let step: Int
+    /// How far in from each outer edge this copy's mask reaches, with room for its blur.
+    let reach: CGFloat
+}
+
+extension EnvironmentValues {
+    /// True inside a blurred copy of `ProgressiveEdgeBlur`: a cell draws its cheap face there.
+    @Entry var wheelBlurCopy = false
 }
 
 @MainActor
