@@ -10,7 +10,7 @@ struct StartScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             StartEmblem()
-                .frame(width: 340, height: 64)
+                .frame(width: 280, height: 64)
 
             Text("Welcome to Freelancy")
                 .font(.system(size: 20, weight: .semibold))
@@ -46,7 +46,7 @@ struct StartScreen: View {
 private struct StartEmblem: View {
     private static let logoSize: CGFloat = 54
     private static let badges: [(text: String, tint: Color?)] = [
-        ("+$124", nil), ("+$81", nil), ("Designed by 8LX", FreelancyLogo.blue),
+        ("+$124", nil), ("+$81", nil), ("By 8LX", FreelancyLogo.blue),
         ("+$56", nil), ("+$97", nil), ("+$38", nil)
     ]
 
@@ -72,7 +72,7 @@ private struct StartEmblem: View {
                     EarningPill(text: Self.badges[index].text, tint: Self.badges[index].tint)
                         .scaleEffect(0.72 + 0.28 * (depth + 1) / 2)
                         .opacity(0.35 + 0.65 * (depth + 1) / 2)
-                        .offset(x: 118 * cos(angle), y: 14 * depth)
+                        .offset(x: 104 * cos(angle), y: 14 * depth)
                 }
             }
         }
@@ -94,6 +94,12 @@ private struct EarningPill: View {
                 shape: AnyShape(Capsule(style: .continuous)),
                 fill: tint.map { .tinted($0) } ?? .veil
             )
+            // A dense fill of the tint under the glass, so a tinted pill reads at full saturation.
+            .background {
+                if let tint {
+                    Capsule(style: .continuous).fill(tint.opacity(0.85))
+                }
+            }
     }
 }
 
