@@ -71,14 +71,14 @@ private struct ClearGlassLabel: View {
         Group {
             if #available(macOS 26.0, *) {
                 configuration.label
-                    .foregroundStyle(DroppyGlassControl.neutralInk())
+                    .foregroundStyle(.white)
                     .glassEffect(.clear.interactive(), in: shape)
                     .contentShape(shape)
                     .scaleEffect(configuration.isPressed ? 0.96 : 1)
                     .animation(DroppyAnimation.hoverQuick, value: configuration.isPressed)
             } else {
                 configuration.label
-                    .foregroundStyle(DroppyGlassControl.neutralInk())
+                    .foregroundStyle(.white)
                     .droppyGlassControlChrome(
                         shape: AnyShape(shape),
                         isHovering: isHovering,
@@ -92,7 +92,8 @@ private struct ClearGlassLabel: View {
 
 /// The hover on Create project: behind its glass, a capsule of the button's own size masks a
 /// bright, saturated blue and white beam that runs round its edge while the pointer is over it:
-/// a sharp line, a close glow and a wide one, added together. It only animates while it shows.
+/// a sharp line, a close glow and a wide one, added together, and outside the button a wide
+/// blurred copy of the beam that travels with it. It only animates while it shows.
 private struct EdgeBeam: View {
     let isActive: Bool
 
@@ -117,21 +118,32 @@ private struct EdgeBeam: View {
             )
             let shape = Capsule(style: .continuous)
             ZStack {
+                // The outer glow: the beam again, blurred wide and not clipped, so it spills
+                // past the button and travels with the beam.
                 shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 18).blur(radius: 9))
-                    .blur(radius: 9)
-                    .opacity(0.9)
-                shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 9).blur(radius: 3.5))
-                    .blur(radius: 3.5)
-                    .blendMode(.plusLighter)
-                shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 2.5))
-                    .blendMode(.plusLighter)
+                    .mask(shape.strokeBorder(lineWidth: 10))
+                    .blur(radius: 14)
+                    .opacity(0.85)
+                    .saturation(1.35)
+
+                // Under the glass: a sharp line and two glows, clipped to the button.
+                ZStack {
+                    shape.fill(beam)
+                        .mask(shape.strokeBorder(lineWidth: 18).blur(radius: 9))
+                        .blur(radius: 9)
+                        .opacity(0.9)
+                    shape.fill(beam)
+                        .mask(shape.strokeBorder(lineWidth: 9).blur(radius: 3.5))
+                        .blur(radius: 3.5)
+                        .blendMode(.plusLighter)
+                    shape.fill(beam)
+                        .mask(shape.strokeBorder(lineWidth: 2.5))
+                        .blendMode(.plusLighter)
+                }
+                .compositingGroup()
+                .saturation(1.35)
+                .clipShape(shape)
             }
-            .compositingGroup()
-            .saturation(1.35)
-            .clipShape(shape)
         }
         .opacity(isActive ? 1 : 0)
         .animation(DroppyAnimation.hover, value: isActive)
