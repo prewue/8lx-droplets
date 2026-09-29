@@ -45,9 +45,11 @@ struct StartScreen: View {
                     .frame(height: 30)
             }
             .buttonStyle(ClearGlassButtonStyle())
-            .background { EdgeBeam(isActive: isHoveringButton) }
+            .background { EdgeBeam(isActive: !isHoveringButton) }
             .onHover { isHoveringButton = $0 }
             .padding(.top, DroppySpacing.xl)
+            // Room for the beam's outer glow, which the widget's rectangle would clip.
+            .padding(.bottom, DroppySpacing.mdl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -90,8 +92,9 @@ private struct ClearGlassLabel: View {
     }
 }
 
-/// The hover on Create project: behind its glass, a capsule of the button's own size masks a
-/// bright, saturated blue and white beam that runs round its edge while the pointer is over it:
+/// Create project's beam: behind its glass, a capsule of the button's own size masks a bright,
+/// saturated blue and white beam that runs round its edge until the pointer is over it (then
+/// the button is a plain one):
 /// a sharp line, a close glow and a wide one, added together, and outside the button a wide
 /// blurred copy of the beam that travels with it. It only animates while it shows.
 private struct EdgeBeam: View {
@@ -121,10 +124,14 @@ private struct EdgeBeam: View {
                 // The outer glow: the beam again, blurred wide and not clipped, so it spills
                 // past the button and travels with the beam.
                 shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 10))
+                    .mask(shape.strokeBorder(lineWidth: 12))
                     .blur(radius: 14)
-                    .opacity(0.85)
-                    .saturation(1.35)
+                    .saturation(1.4)
+                shape.fill(beam)
+                    .mask(shape.strokeBorder(lineWidth: 6))
+                    .blur(radius: 8)
+                    .saturation(1.4)
+                    .blendMode(.plusLighter)
 
                 // Under the glass: a sharp line and two glows, clipped to the button.
                 ZStack {

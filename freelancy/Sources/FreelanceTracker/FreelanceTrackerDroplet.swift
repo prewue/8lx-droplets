@@ -837,8 +837,9 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     /// host's insets. The paired lists, the empty state and a compact question fit in it too.
     static let groupedHeight: CGFloat = hostInsets + 94
 
-    /// The start screen's content: the logo and its orbit, the greeting, two lines, the button.
-    static let startScreenHeight: CGFloat = 195
+    /// The start screen's content: the logo and its orbit, the greeting, two lines, the button and
+    /// room under it for the beam's glow.
+    static let startScreenHeight: CGFloat = 209
 
     static let flowBodyHeight: CGFloat = 80
     static let flowActionHeight: CGFloat = 28
