@@ -1,50 +1,62 @@
 {
-  "fill-specializations" : [
+  "fill-specializations": [
     {
-      "value" : {
-        "solid" : "display-p3:0.09686,0.25134,0.95410,1.00000"
+      "value": {
+        "solid": "display-p3:0.08627,0.49804,1.00000,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "blend-mode": "normal",
+          "glass": true,
+          "hidden": false,
+          "image-name": "hands.svg",
+          "name": "Hands"
+        },
+        {
+          "blend-mode": "normal",
+          "glass": false,
+          "hidden": false,
+          "image-name": "dial.svg",
+          "name": "Dial"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
       }
     },
     {
-      "appearance" : "dark",
-      "value" : {
-        "solid" : "display-p3:0.07324,0.20410,0.95703,1.00000"
-      }
-    }
-  ],
-  "groups" : [
-    {
-      "layers" : [
+      "layers": [
         {
-          "blend-mode" : "normal",
-          "fill" : "system-light",
-          "glass" : true,
-          "hidden" : false,
-          "image-name" : "Frame 240.png",
-          "name" : "Frame 240",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              12,
-              3
-            ]
-          }
+          "blend-mode": "normal",
+          "glass": false,
+          "hidden": false,
+          "image-name": "background.svg",
+          "name": "Background"
         }
       ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
       },
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
       }
     }
   ],
-  "supported-platforms" : {
-    "circles" : [
+  "supported-platforms": {
+    "circles": [
       "watchOS"
     ],
-    "squares" : "shared"
+    "squares": "shared"
   }
 }
