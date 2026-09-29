@@ -111,7 +111,6 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         static let defaultRate = "defaultRate"
         static let defaultCurrency = "defaultCurrency"
         static let pinsLiveActivity = "pinsLiveActivity"
-        static let notchShowsMoney = "notchShowsMoney"
         static let showsHUD = "showsHUD"
         static let moneyFirst = "moneyFirst"
         static let startsSessionsRunning = "startsSessionsRunning"
@@ -211,18 +210,6 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     public var showsHUD: Bool {
         host?.preferences.value(forKey: Keys.showsHUD, default: true) ?? true
-    }
-
-    /// Show the amount instead of the time in the notch.
-    public var notchShowsMoney: Bool {
-        host?.preferences.value(forKey: Keys.notchShowsMoney, default: false) ?? false
-    }
-
-    public var notchShowsMoneyBinding: Binding<Bool> {
-        Binding(
-            get: { self.notchShowsMoney },
-            set: { self.host?.preferences.setValue($0, forKey: Keys.notchShowsMoney); self.objectWillChange.send() }
-        )
     }
 
     public var defaultRateBinding: Binding<Double> {
@@ -1009,11 +996,11 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
     }
 
     public func makeCompactLeading() -> AnyView {
-        AnyView(CompactStatusView(droplet: self))
+        AnyView(CompactFigureView(droplet: self, highlighted: false))
     }
 
     public func makeCompactTrailing() -> AnyView {
-        AnyView(CompactFigureView(droplet: self))
+        AnyView(CompactFigureView(droplet: self, highlighted: true))
     }
 
     public func makeExpanded(context: LiveActivityContext) -> AnyView {
@@ -1062,36 +1049,23 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
     }
 }
 
-/// Pause or play icon for the session in the notch.
-private struct CompactStatusView: View {
-    @ObservedObject var droplet: FreelanceTrackerDroplet
-
-    var body: some View {
-        let running = droplet.notchIsRunning
-        Image(systemName: running ? "pause.fill" : "play.fill")
-            .font(.system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .bold))
-            .foregroundStyle(.white)
-            .id(running)
-            .transition(DroppyTransition.compactContent)
-            .animation(DroppyAnimation.state, value: running)
-            .padding(.leading, DroppySpacing.sm)
-            .accessibilityLabel(running ? "Running" : "Paused")
-    }
-}
-
-/// Time or amount in the notch, dimmed while paused.
+/// One figure in the notch: the highlighted one in the project's colour, the other subtle.
+/// Dimmed while the session is paused.
 private struct CompactFigureView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
+    let highlighted: Bool
 
     var body: some View {
-        let money = droplet.notchShowsMoney
+        // "Show me the money" puts the amount in the highlighted spot.
+        let showsMoney = highlighted == droplet.moneyFirst
         RollingDigits(
-            money ? droplet.notchEarnings : droplet.notchClock,
+            showsMoney ? droplet.notchEarnings : droplet.notchClock,
             font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .medium, design: .rounded),
-            color: droplet.notchColor
+            color: highlighted ? droplet.notchColor : AdaptiveColors.notchSurfaceSecondaryText
         )
         .opacity(droplet.notchIsRunning ? 1 : 0.6)
         .animation(DroppyAnimation.state, value: droplet.notchIsRunning)
+        .padding(highlighted ? .trailing : .leading, highlighted ? 0 : DroppySpacing.sm)
     }
 }
 

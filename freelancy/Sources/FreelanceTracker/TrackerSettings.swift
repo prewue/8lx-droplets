@@ -55,7 +55,7 @@ struct FreelanceTrackerSettings: View {
                     )
                     DropletToggleRow(
                         title: "Show me the money",
-                        subtitle: "The amount gets the big digits and the clock the small ones, on the timer and every card. Time is money, but money is money.",
+                        subtitle: "The amount gets the big digits and the clock the small ones, on the timer, every card and beside the notch. Time is money, but money is money.",
                         isOn: droplet.moneyFirstBinding
                     )
                 }
@@ -69,11 +69,6 @@ struct FreelanceTrackerSettings: View {
                         title: "Keep the tracker in the notch",
                         subtitle: "While a session runs, the clock and the money stay beside the notch. Off, they show only while the pointer is over it.",
                         isOn: droplet.pinsLiveActivityBinding
-                    )
-                    DropletToggleRow(
-                        title: "Show the amount in the notch",
-                        subtitle: "Off, the notch shows the session's time in the project's colour.",
-                        isOn: droplet.notchShowsMoneyBinding
                     )
                     DropletToggleRow(
                         title: "Show a strip on start and pause",
