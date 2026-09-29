@@ -58,6 +58,9 @@ final class WheelEngine: ObservableObject {
 
     var count = 1
     var pitch: CGFloat = 56
+    /// An endless ring when true; a row that stops at its first and last item when false (search
+    /// results, a ruler of numbers).
+    var wraps = true
     var onIndexChange: ((Int) -> Void)?
     var isHovering = false
 
@@ -66,13 +69,32 @@ final class WheelEngine: ObservableObject {
     private var dragStart: CGFloat?
     private var lastIndex: Int?
 
-    var index: Int { wrap(Int(position.rounded())) }
+    var index: Int {
+        let rounded = Int(position.rounded())
+        return wraps ? wrap(rounded) : min(max(rounded, 0), count - 1)
+    }
 
     func wrap(_ value: Int) -> Int {
         ((value % count) + count) % count
     }
 
+    /// A bounded row's position kept to its ends; a ring's, untouched.
+    private func clamped(_ value: CGFloat) -> CGFloat {
+        wraps ? value : min(max(value, 0), CGFloat(max(count - 1, 0)))
+    }
+
+    /// While dragging past a bounded row's end it gives with resistance, then settles back.
+    private func rubberBanded(_ value: CGFloat) -> CGFloat {
+        let edge = clamped(value)
+        return edge + (value - edge) * 0.3
+    }
+
     func place(at index: Int) {
+        guard wraps else {
+            position = CGFloat(min(max(index, 0), max(count - 1, 0)))
+            lastIndex = self.index
+            return
+        }
         let base = Int(position.rounded())
         var delta = index - wrap(base)
         if delta > count / 2 { delta -= count }
@@ -108,7 +130,7 @@ final class WheelEngine: ObservableObject {
             let delta = abs(dx) >= abs(dy) ? dx : dy
             guard delta != 0 else { return }
             snapTask?.cancel()
-            position -= delta / pitch
+            position = clamped(position - delta / pitch)
             report(haptic: true)
             scheduleSnap()
         } else {
@@ -128,20 +150,21 @@ final class WheelEngine: ObservableObject {
 
     func step(_ delta: Int) {
         snapTask?.cancel()
-        settle(on: position.rounded() + CGFloat(delta))
+        settle(on: clamped(position.rounded() + CGFloat(delta)))
     }
 
     /// A click on an item further along glides there, longer the further it is, instead of
     /// springing across the gap in one leap.
     func go(to virtualIndex: Int) {
         snapTask?.cancel()
-        let distance = abs(CGFloat(virtualIndex) - position)
+        let target = clamped(CGFloat(virtualIndex))
+        let distance = abs(target - position)
         guard distance > 1.5 else {
-            settle(on: CGFloat(virtualIndex))
+            settle(on: target)
             return
         }
         withAnimation(.timingCurve(0.25, 0.1, 0.25, 1, duration: min(0.3 + 0.09 * Double(distance), 0.75))) {
-            position = CGFloat(virtualIndex)
+            position = target
         }
         report(haptic: false)
     }
@@ -151,14 +174,14 @@ final class WheelEngine: ObservableObject {
             dragStart = position
             snapTask?.cancel()
         }
-        position = (dragStart ?? position) - translation / pitch
+        position = rubberBanded((dragStart ?? position) - translation / pitch)
         report(haptic: true)
     }
 
     func dragEnded(_ predictedTranslation: CGFloat) {
         let start = dragStart ?? position
         dragStart = nil
-        settle(on: (start - predictedTranslation / pitch).rounded())
+        settle(on: clamped((start - predictedTranslation / pitch).rounded()))
     }
 
     private func settle(on target: CGFloat) {
@@ -182,6 +205,8 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
     let items: [Item]
     @Binding var selection: Item
     let style: WheelStyle
+    /// False for a row that stops at its ends instead of an endless ring.
+    var wraps = true
     @ViewBuilder let cell: (Item, Bool) -> Cell
 
     @State private var width: CGFloat = 0
@@ -193,7 +218,8 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
     /// for the outer edge draw an item or two instead of the whole ring.
     private func virtuals(for copy: EdgeBlurCopy, position: CGFloat) -> [Int] {
         let centre = Int(position.rounded())
-        let all = Array((centre - Self.reach)...(centre + Self.reach))
+        var all = Array((centre - Self.reach)...(centre + Self.reach))
+        if !wraps { all = all.filter { $0 >= 0 && $0 < items.count } }
         guard copy.step > 0, width > 0 else { return all }
         let threshold = width / 2 - copy.reach - style.pitch / 2
         return all.filter { abs(style.offset(CGFloat($0) - position)) >= threshold }
@@ -206,7 +232,7 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
                 ForEach(virtuals(for: copy, position: position), id: \.self) { virtual in
                     let t = CGFloat(virtual) - position
                     let distance = abs(t)
-                    cell(items[engine.wrap(virtual)], distance < 0.5)
+                    cell(items[wraps ? engine.wrap(virtual) : virtual], distance < 0.5)
                         .scaleEffect(style.scale(distance))
                         .opacity(style.opacity(distance))
                         .offset(x: style.offset(t))
@@ -240,19 +266,36 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
             }
         )
         .onAppear {
-            engine.count = items.count
-            engine.pitch = style.pitch
-            if let index = items.firstIndex(of: selection) { engine.place(at: index) }
-            engine.onIndexChange = { index in
-                let chosen = items[index]
-                if chosen != selection {
-                    withAnimation(DroppyAnimation.segmentedSelection) { selection = chosen }
-                }
-            }
+            configure()
             engine.start()
         }
+        .onChange(of: items) { _, _ in configure() }
+        .onChange(of: wraps) { _, _ in configure() }
         .onDisappear { engine.stop() }
         .frame(height: style.height)
+    }
+
+    /// Points the engine at the current items (they change as a search narrows them), on the
+    /// selection when it is among them and on the first item when it is not.
+    private func configure() {
+        guard !items.isEmpty else { return }
+        engine.count = items.count
+        engine.pitch = style.pitch
+        engine.wraps = wraps
+        if let index = items.firstIndex(of: selection) {
+            engine.place(at: index)
+        } else {
+            engine.place(at: 0)
+            selection = items[0]
+        }
+        let current = items
+        engine.onIndexChange = { index in
+            guard current.indices.contains(index) else { return }
+            let chosen = current[index]
+            if chosen != selection {
+                withAnimation(DroppyAnimation.segmentedSelection) { selection = chosen }
+            }
+        }
     }
 }
 
@@ -337,4 +380,99 @@ struct EdgeBlurCopy {
 extension EnvironmentValues {
     /// True inside a blurred copy of `ProgressiveEdgeBlur`: a cell draws its cheap face there.
     @Entry var wheelBlurCopy = false
+}
+
+/// A ruler of tick marks for a whole number, on the wheel system: a bounded `WheelEngine`, the
+/// same scrolling, dragging, clicking and arrows, the same edge fade and progressive blur. The
+/// active tick is always the one in the middle: tall and in `tint`; its two neighbours either
+/// side take the tint fainter and shorter; the rest are grey. Height and tint follow each tick's
+/// distance from the middle on smooth curves, so the ticks swell and fade as they pass it.
+struct RulerWheel: View {
+    @ObservedObject var engine: WheelEngine
+    let range: ClosedRange<Int>
+    @Binding var value: Int
+    let tint: Color
+
+    static let spacing: CGFloat = 13.5
+    static let height: CGFloat = 46
+    private static let tickWidth: CGFloat = 3
+    private static let restHeight: CGFloat = 24
+    private static let edgeBlur: CGFloat = 3
+    private static let blurBand: CGFloat = 130
+    private static let fadeWidth: CGFloat = 56
+
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        let position = engine.position
+        ProgressiveEdgeBlur(maxRadius: Self.edgeBlur, band: Self.blurBand) { copy in
+            ZStack {
+                ForEach(indices(for: copy, position: position), id: \.self) { index in
+                    let distance = abs(CGFloat(index) - position)
+                    tick(distance)
+                        .offset(x: (CGFloat(index) - position) * Self.spacing)
+                        .onTapGesture { engine.go(to: index) }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { engine.dragChanged($0.translation.width) }
+                .onEnded { engine.dragEnded($0.predictedEndTranslation.width) }
+        )
+        .onContinuousHover { phase in
+            switch phase {
+            case .active: engine.isHovering = true
+            case .ended: engine.isHovering = false
+            }
+        }
+        .mask(
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: Self.fadeWidth)
+                Rectangle()
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: Self.fadeWidth)
+            }
+        )
+        .onAppear {
+            engine.wraps = false
+            engine.count = range.count
+            engine.pitch = Self.spacing
+            engine.place(at: min(max(value, range.lowerBound), range.upperBound) - range.lowerBound)
+            engine.onIndexChange = { index in
+                let chosen = range.lowerBound + index
+                if chosen != value { value = chosen }
+            }
+            engine.start()
+        }
+        .onDisappear { engine.stop() }
+        .frame(height: Self.height)
+    }
+
+    /// The ticks on screen, and for a blurred copy only those in its part of the edge band.
+    private func indices(for copy: EdgeBlurCopy, position: CGFloat) -> [Int] {
+        let half = Int((max(width, 400) / 2 / Self.spacing).rounded(.up)) + 1
+        let centre = Int(position.rounded())
+        let all = Array(max(0, centre - half)...min(range.count - 1, centre + half))
+        guard copy.step > 0, width > 0 else { return all }
+        let threshold = width / 2 - copy.reach - Self.spacing
+        return all.filter { abs(CGFloat($0) - position) * Self.spacing >= threshold }
+    }
+
+    private func tick(_ distance: CGFloat) -> some View {
+        let lift = exp(-(distance * distance) / (2 * 0.9 * 0.9))
+        // Full at the middle, about 0.45 and 0.2 for the next two, gone by the third.
+        let fade = distance >= 3 ? 0 : max(0, min(1, (3 - distance) / 0.8))
+        let tinted = exp(-0.8 * distance) * fade
+        return ZStack {
+            Capsule().fill(Color.white.opacity(0.14))
+            Capsule().fill(tint).opacity(tinted)
+        }
+        .frame(width: Self.tickWidth, height: Self.restHeight + (Self.height - Self.restHeight) * lift)
+    }
 }

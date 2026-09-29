@@ -78,12 +78,17 @@ private struct FlowStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
 
+    /// The currency search, `nil` while it is closed.
+    @State private var currencyQuery: String?
+
     private var color: ProjectColor { droplet.draft?.color ?? draft.color }
 
     var body: some View {
         VStack(spacing: DroppySpacing.md) {
-            FlowNav(title: title, back: { droplet.backInDraft() }) {
-                if draft.step == .rate {
+            FlowNav(title: title, back: { droplet.backInDraft() }, hidesTitle: currencyQuery != nil) {
+                if draft.step == .currency {
+                    NavSearch(query: $currencyQuery) { droplet.advanceDraft() }
+                } else if draft.step == .rate {
                     Button {
                         droplet.setDraftStep(.currency)
                     } label: {
@@ -122,7 +127,6 @@ private struct FlowStep: View {
 
     private var actionAccent: Color? {
         switch draft.step {
-        case .rate: draft.color.color
         case .color: (droplet.draft?.pendingColor ?? draft.color).color
         default: nil
         }
@@ -138,7 +142,7 @@ private struct FlowStep: View {
         case .rate:
             RateStep(droplet: droplet, draft: draft)
         case .currency:
-            CurrencyStep(droplet: droplet, draft: draft)
+            CurrencyStep(droplet: droplet, draft: draft, query: currencyQuery)
         case .color:
             ColorStep(droplet: droplet, draft: draft)
         }
@@ -166,21 +170,82 @@ private struct FlowStep: View {
 private struct FlowNav<Trailing: View>: View {
     let title: String
     let back: () -> Void
+    /// The title steps aside while a trailing control spreads across the row (the search).
+    var hidesTitle = false
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
         ZStack {
-            HStack {
-                CornerButton(systemImage: "chevron.left", help: "Back", action: back)
-                Spacer(minLength: 0)
-                trailing()
-            }
             Text(verbatim: title)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
                 .lineLimit(1)
+                .opacity(hidesTitle ? 0 : 1)
+                .blur(radius: hidesTitle ? 4 : 0)
+                .animation(DroppyAnimation.controlMorph, value: hidesTitle)
+            HStack(spacing: DroppySpacing.sm) {
+                CornerButton(systemImage: "chevron.left", help: "Back", action: back)
+                Spacer(minLength: 0)
+                trailing()
+            }
         }
         .frame(height: FreelanceTrackerDroplet.navHeight)
+    }
+}
+
+/// The currency step's search: a glass disc the size of the back button that springs open
+/// across the nav row into a field, and folds back into the disc when it closes. `query` is
+/// `nil` while it is a disc. Return confirms the currency in the middle; Escape closes it.
+private struct NavSearch: View {
+    @Binding var query: String?
+    let submit: () -> Void
+
+    private var isOpen: Bool { query != nil }
+
+    var body: some View {
+        let shape = Capsule(style: .continuous)
+        HStack(spacing: DroppySpacing.xsm) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DroppyGlassControl.neutralInk())
+            if isOpen {
+                FlowTextField(
+                    text: Binding(get: { query ?? "" }, set: { query = $0 }),
+                    placeholder: "Search currencies",
+                    font: .systemFont(ofSize: 13, weight: .medium),
+                    onSubmit: submit,
+                    onCancel: close,
+                    alignment: .left
+                )
+                .frame(height: 20)
+                .transition(.opacity)
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close search")
+                .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, isOpen ? DroppySpacing.smd : 0)
+        .frame(width: isOpen ? nil : FreelanceTrackerDroplet.navHeight, height: FreelanceTrackerDroplet.navHeight)
+        .frame(maxWidth: isOpen ? .infinity : FreelanceTrackerDroplet.navHeight)
+        .droppyGlassControlChrome(shape: AnyShape(shape))
+        .contentShape(shape)
+        .onTapGesture {
+            guard !isOpen else { return }
+            withAnimation(DroppyAnimation.controlMorph) { query = "" }
+        }
+        .help(isOpen ? "" : "Search currencies")
+        .accessibilityLabel("Search currencies")
+    }
+
+    private func close() {
+        withAnimation(DroppyAnimation.controlMorph) { query = nil }
     }
 }
 
@@ -358,31 +423,35 @@ private struct ColorOrb: View {
     }
 }
 
+/// The rate: the amount in the project's colour (click it to type an exact one) over a ruler
+/// that picks whole amounts, the active tick always in the middle.
 private struct RateStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
 
     @State private var isTyping = false
     @State private var typed = ""
+    @StateObject private var ruler = WheelEngine()
 
-    private static let range: ClosedRange<Double> = 1...500
+    private static let range = 1...500
 
     private var rate: Double { droplet.draft?.rate ?? draft.rate }
     private var currency: TrackerCurrency { droplet.draft?.currency ?? draft.currency }
+    private var color: Color { (droplet.draft?.color ?? draft.color).color }
 
     var body: some View {
-        VStack(spacing: DroppySpacing.md) {
+        VStack(spacing: DroppySpacing.xs) {
             Group {
                 if isTyping {
                     FlowTextField(
                         text: $typed,
                         placeholder: plainNumber(rate),
-                        font: .monospacedDigitSystemFont(ofSize: 30, weight: .semibold),
+                        font: .monospacedDigitSystemFont(ofSize: 26, weight: .semibold),
                         onSubmit: { finishTyping(apply: true) },
                         onCancel: { finishTyping(apply: false) },
                         onEndEditing: { finishTyping(apply: true) }
                     )
-                    .frame(width: 200, height: 38)
+                    .frame(width: 200, height: 30)
                 } else {
                     Button {
                         typed = plainNumber(rate)
@@ -390,12 +459,12 @@ private struct RateStep: View {
                     } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 2) {
                             Text(verbatim: currency.formatAmount(rate))
-                                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                                .font(.system(size: 26, weight: .semibold, design: .rounded))
                                 .monospacedDigit()
-                                .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+                                .foregroundStyle(color)
                                 .contentTransition(.numericText())
                             Text("/h")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
                                 .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
                         }
                         .contentShape(Rectangle())
@@ -405,36 +474,36 @@ private struct RateStep: View {
                     .animation(DroppyAnimation.state, value: rate)
                 }
             }
-            .frame(height: 38)
+            .frame(height: 30)
 
-            Slider(
+            RulerWheel(
+                engine: ruler,
+                range: Self.range,
                 value: Binding(
-                    get: { min(max(rate, Self.range.lowerBound), Self.range.upperBound) },
-                    set: { value in droplet.updateDraft { $0.rate = value.rounded() } }
+                    get: { Int(rate.rounded()) },
+                    set: { whole in droplet.updateDraft { $0.rate = Double(whole) } }
                 ),
-                in: Self.range
+                tint: color
             )
-            .controlSize(.small)
-            .tint(AdaptiveColors.notchSurfacePrimaryText)
-            .frame(width: 240)
             .accessibilityLabel("Hourly rate")
         }
         .background {
             if !isTyping {
                 FlowKeyReceiver { key, shift in
                     switch key {
-                    case .left, .down: nudge(shift ? -10 : -1)
-                    case .right, .up: nudge(shift ? 10 : 1)
+                    case .left, .down: ruler.step(shift ? -10 : -1)
+                    case .right, .up: ruler.step(shift ? 10 : 1)
                     case .enter: droplet.advanceDraft()
                     case .escape: droplet.backInDraft()
                     }
                 }
             }
         }
-    }
-
-    private func nudge(_ delta: Double) {
-        droplet.updateDraft { $0.rate = max(0, ($0.rate + delta).rounded()) }
+        .onChange(of: rate) { _, typedRate in
+            // A typed amount moves the ruler to it; the ruler's own moves are already there.
+            let target = min(max(Int(typedRate.rounded()), Self.range.lowerBound), Self.range.upperBound) - Self.range.lowerBound
+            if ruler.index != target { ruler.go(to: target) }
+        }
     }
 
     private func plainNumber(_ value: Double) -> String {
@@ -454,25 +523,57 @@ private struct RateStep: View {
     }
 }
 
+/// The currency wheel. The glass is one lens held in the middle that the codes pass under, so
+/// the selection moves with the scroll instead of switching at the halfway point. A search
+/// narrows the codes to those matching its text, as a row that stops at its ends.
 private struct CurrencyStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
+    let query: String?
 
     @StateObject private var wheel = WheelEngine()
 
+    private var searchText: String {
+        (query ?? "").trimmingCharacters(in: .whitespaces)
+    }
+
+    private var matches: [TrackerCurrency] {
+        guard !searchText.isEmpty else { return TrackerCurrency.all }
+        return TrackerCurrency.all.filter { currency in
+            [currency.code, currency.name, currency.symbol].contains {
+                $0.range(of: searchText, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+        }
+    }
+
     var body: some View {
-        InfiniteWheel(
-            engine: wheel,
-            items: TrackerCurrency.all,
-            selection: Binding(
-                get: { droplet.draft?.pendingCurrency ?? draft.currency },
-                set: { chosen in droplet.updateDraft { $0.pendingCurrency = chosen } }
-            ),
-            style: .currencies
-        ) { currency, isCentred in
-            CurrencyPill(code: currency.code, isCentred: isCentred)
-                .help(currency.name)
-                .accessibilityLabel(currency.name)
+        let found = matches
+        ZStack {
+            if found.isEmpty {
+                Text("No currency matches")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+            } else {
+                Capsule(style: .continuous)
+                    .fill(.clear)
+                    .frame(width: CurrencyPill.width, height: CurrencyPill.height)
+                    .droppyGlassControlChrome(shape: AnyShape(Capsule(style: .continuous)))
+
+                InfiniteWheel(
+                    engine: wheel,
+                    items: found,
+                    selection: Binding(
+                        get: { droplet.draft?.pendingCurrency ?? draft.currency },
+                        set: { chosen in droplet.updateDraft { $0.pendingCurrency = chosen } }
+                    ),
+                    style: .currencies,
+                    wraps: searchText.isEmpty
+                ) { currency, isCentred in
+                    CurrencyPill(code: currency.code, isCentred: isCentred)
+                        .help(currency.name)
+                        .accessibilityLabel(currency.name)
+                }
+            }
         }
         .background {
             FlowKeyReceiver { key, _ in
@@ -487,29 +588,20 @@ private struct CurrencyStep: View {
     }
 }
 
-/// A currency code in a glass capsule; a flat capsule in the edge blur's copies, where glass
-/// would cost a lot and show nothing.
+/// A currency code on the wheel: text only; the glass is the lens in the middle.
 private struct CurrencyPill: View {
     let code: String
     let isCentred: Bool
 
-    @Environment(\.wheelBlurCopy) private var isBlurCopy
+    static let width: CGFloat = 64
+    static let height: CGFloat = 32
 
     var body: some View {
-        let shape = Capsule(style: .continuous)
-        let label = Text(verbatim: code)
+        Text(verbatim: code)
             .font(.system(size: 15, weight: .semibold, design: .rounded))
             .foregroundStyle(isCentred ? AdaptiveColors.notchSurfacePrimaryText : AdaptiveColors.notchSurfaceSecondaryText)
-            .frame(width: 64, height: 32)
-        if isBlurCopy {
-            label.background(shape.fill(AdaptiveColors.overlayAuto(0.1)))
-        } else if isCentred {
-            label.droppyGlassControlChrome(shape: AnyShape(shape), fill: .veil)
-        } else {
-            label
-                .droppyGlassControlChrome(shape: AnyShape(shape), fill: .veil)
-                .droppyFlatGlassControls()
-        }
+            .animation(DroppyAnimation.state, value: isCentred)
+            .frame(width: Self.width, height: Self.height)
     }
 }
 
@@ -633,6 +725,7 @@ struct FlowTextField: NSViewRepresentable {
     let onSubmit: () -> Void
     let onCancel: () -> Void
     var onEndEditing: (() -> Void)? = nil
+    var alignment: NSTextAlignment = .center
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -642,7 +735,7 @@ struct FlowTextField: NSViewRepresentable {
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.alignment = .center
+        field.alignment = alignment
         field.font = font
         field.textColor = .white
         field.appearance = NSAppearance(named: .darkAqua)
@@ -670,7 +763,7 @@ struct FlowTextField: NSViewRepresentable {
 
     private var placeholderString: NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
+        paragraph.alignment = alignment
         return NSAttributedString(string: placeholder, attributes: [
             .font: font,
             .foregroundColor: NSColor.white.withAlphaComponent(0.32),
