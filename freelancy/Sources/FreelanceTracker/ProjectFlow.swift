@@ -547,6 +547,8 @@ private struct RateStep: View {
             )
             .accessibilityLabel("Hourly rate")
         }
+        // Closer to the title; an offset, so the step's layout and the button stay where they are.
+        .offset(y: -6)
         .background {
             if !isTyping {
                 FlowKeyReceiver { key, shift in
