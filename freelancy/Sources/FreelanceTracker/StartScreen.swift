@@ -44,7 +44,7 @@ struct StartScreen: View {
                     .padding(.horizontal, DroppySpacing.xl)
                     .frame(height: 30)
             }
-            .buttonStyle(DroppyGlassButtonStyle())
+            .buttonStyle(ClearGlassButtonStyle())
             .background { EdgeBeam(isActive: isHoveringButton) }
             .onHover { isHoveringButton = $0 }
             .padding(.top, DroppySpacing.xl)
@@ -53,11 +53,51 @@ struct StartScreen: View {
     }
 }
 
+/// Create project's glass: the clear Liquid Glass variant on macOS 26 and later, so the beam
+/// behind it reads through, and Droppy's own glass control before that.
+private struct ClearGlassButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        ClearGlassLabel(configuration: configuration)
+    }
+}
+
+private struct ClearGlassLabel: View {
+    let configuration: ButtonStyleConfiguration
+
+    @State private var isHovering = false
+
+    var body: some View {
+        let shape = Capsule(style: .continuous)
+        Group {
+            if #available(macOS 26.0, *) {
+                configuration.label
+                    .foregroundStyle(DroppyGlassControl.neutralInk())
+                    .glassEffect(.clear.interactive(), in: shape)
+                    .contentShape(shape)
+                    .scaleEffect(configuration.isPressed ? 0.96 : 1)
+                    .animation(DroppyAnimation.hoverQuick, value: configuration.isPressed)
+            } else {
+                configuration.label
+                    .foregroundStyle(DroppyGlassControl.neutralInk())
+                    .droppyGlassControlChrome(
+                        shape: AnyShape(shape),
+                        isHovering: isHovering,
+                        isPressed: configuration.isPressed
+                    )
+            }
+        }
+        .onHover { isHovering = $0 }
+    }
+}
+
 /// The hover on Create project: behind its glass, a capsule of the button's own size masks a
-/// bright blue and white beam that runs round its edge while the pointer is over it. It only
-/// animates while it shows.
+/// bright, saturated blue and white beam that runs round its edge while the pointer is over it:
+/// a sharp line, a close glow and a wide one, added together. It only animates while it shows.
 private struct EdgeBeam: View {
     let isActive: Bool
+
+    private static let deepBlue = Color(red: 0, green: 0.35, blue: 1)
+    private static let skyBlue = Color(red: 0.35, green: 0.72, blue: 1)
 
     var body: some View {
         TimelineView(.animation(minimumInterval: nil, paused: !isActive)) { timeline in
@@ -65,25 +105,33 @@ private struct EdgeBeam: View {
             let beam = AngularGradient(
                 stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: .clear, location: 0.55),
-                    .init(color: FreelancyLogo.blue, location: 0.74),
-                    .init(color: .white, location: 0.86),
-                    .init(color: FreelancyLogo.blue, location: 0.94),
+                    .init(color: .clear, location: 0.5),
+                    .init(color: Self.deepBlue, location: 0.68),
+                    .init(color: Self.skyBlue, location: 0.8),
+                    .init(color: .white, location: 0.87),
+                    .init(color: Self.deepBlue, location: 0.95),
                     .init(color: .clear, location: 1)
                 ],
                 center: .center,
                 angle: .degrees(turn.truncatingRemainder(dividingBy: 1) * 360)
             )
+            let shape = Capsule(style: .continuous)
             ZStack {
-                Capsule(style: .continuous)
-                    .fill(beam)
-                    .mask(Capsule(style: .continuous).strokeBorder(lineWidth: 8).blur(radius: 4))
-                    .blur(radius: 4)
-                Capsule(style: .continuous)
-                    .fill(beam)
-                    .mask(Capsule(style: .continuous).strokeBorder(lineWidth: 2.5))
+                shape.fill(beam)
+                    .mask(shape.strokeBorder(lineWidth: 14).blur(radius: 6))
+                    .blur(radius: 6)
+                    .opacity(0.9)
+                shape.fill(beam)
+                    .mask(shape.strokeBorder(lineWidth: 7).blur(radius: 2))
+                    .blur(radius: 2)
+                    .blendMode(.plusLighter)
+                shape.fill(beam)
+                    .mask(shape.strokeBorder(lineWidth: 3.5))
+                    .blendMode(.plusLighter)
             }
-            .clipShape(Capsule(style: .continuous))
+            .compositingGroup()
+            .saturation(1.35)
+            .clipShape(shape)
         }
         .opacity(isActive ? 1 : 0)
         .animation(DroppyAnimation.hover, value: isActive)
