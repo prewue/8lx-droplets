@@ -91,82 +91,54 @@ private struct FlowStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
 
-    /// The colour the picker opened on, set while the colour arc is up: Escape goes back to it.
-    @State private var colorOrigin: ProjectColor?
-    @StateObject private var colorWheel = WheelEngine()
-
-    private var isPickingColor: Bool { colorOrigin != nil }
     private var color: ProjectColor { droplet.draft?.color ?? draft.color }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: DroppySpacing.md) {
-                FlowNav(title: title, back: { droplet.backInDraft() }) {
-                    if draft.step == .rate {
-                        Button {
-                            droplet.setDraftStep(.currency)
-                        } label: {
-                            Text(verbatim: draft.currency.code)
-                                .font(.system(size: 12, weight: .semibold))
-                                .padding(.horizontal, DroppySpacing.md)
-                                .frame(height: FreelanceTrackerDroplet.navHeight)
-                        }
-                        .buttonStyle(DroppyGlassButtonStyle())
-                        .help("Change the currency, \(draft.currency.name)")
-                        .accessibilityLabel("Currency, \(draft.currency.name)")
-                    } else if draft.step == .look {
-                        Button(action: openColorPicker) {
-                            Text("Color")
-                                .font(.system(size: 12, weight: .semibold))
-                                .padding(.horizontal, DroppySpacing.md)
-                                .frame(height: FreelanceTrackerDroplet.navHeight)
-                        }
-                        .buttonStyle(TintedGlassButtonStyle(color: color.color))
-                        .help("Change the colour, \(color.name)")
-                        .accessibilityLabel("Colour, \(color.name)")
+        VStack(spacing: DroppySpacing.md) {
+            FlowNav(title: title, back: { droplet.backInDraft() }) {
+                if draft.step == .rate {
+                    Button {
+                        droplet.setDraftStep(.currency)
+                    } label: {
+                        Text(verbatim: draft.currency.code)
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, DroppySpacing.md)
+                            .frame(height: FreelanceTrackerDroplet.navHeight)
                     }
-                }
-
-                content
-                    .frame(maxWidth: .infinity)
-                    .frame(height: FreelanceTrackerDroplet.flowBodyHeight)
-
-                FlowActionRow(
-                    title: actionTitle,
-                    accent: draft.step == .rate ? draft.color.color : nil
-                ) {
-                    droplet.advanceDraft()
+                    .buttonStyle(DroppyGlassButtonStyle())
+                    .help("Change the currency, \(draft.currency.name)")
+                    .accessibilityLabel("Currency, \(draft.currency.name)")
+                } else if draft.step == .look {
+                    Button {
+                        droplet.setDraftStep(.color)
+                    } label: {
+                        Text("Color")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, DroppySpacing.md)
+                            .frame(height: FreelanceTrackerDroplet.navHeight)
+                    }
+                    .buttonStyle(VividGlassButtonStyle(accent: color.color))
+                    .help("Change the colour, \(color.name)")
+                    .accessibilityLabel("Colour, \(color.name)")
                 }
             }
-            .blur(radius: isPickingColor ? 10 : 0)
-            .opacity(isPickingColor ? 0.25 : 1)
-            .allowsHitTesting(!isPickingColor)
 
-            if isPickingColor {
-                ColorArcPicker(
-                    engine: colorWheel,
-                    selection: Binding(
-                        get: { color },
-                        set: { chosen in droplet.updateDraft { $0.color = chosen } }
-                    ),
-                    done: { closeColorPicker(apply: true) }
-                )
-                .transition(DroppyTransition.element)
+            content
+                .frame(maxWidth: .infinity)
+                .frame(height: FreelanceTrackerDroplet.flowBodyHeight)
+
+            FlowActionRow(title: actionTitle, accent: actionAccent) {
+                droplet.advanceDraft()
             }
         }
-        .animation(DroppyAnimation.state, value: isPickingColor)
     }
 
-    private func openColorPicker() {
-        colorOrigin = color
-    }
-
-    private func closeColorPicker(apply: Bool) {
-        guard let origin = colorOrigin else { return }
-        if !apply {
-            droplet.updateDraft { $0.color = origin }
+    private var actionAccent: Color? {
+        switch draft.step {
+        case .rate: draft.color.color
+        case .color: (droplet.draft?.pendingColor ?? draft.color).color
+        default: nil
         }
-        colorOrigin = nil
     }
 
     @ViewBuilder
@@ -175,17 +147,13 @@ private struct FlowStep: View {
         case .name:
             NameStep(droplet: droplet, draft: draft)
         case .look:
-            LookStep(
-                droplet: droplet,
-                draft: draft,
-                isPickingColor: isPickingColor,
-                colorWheel: colorWheel,
-                closeColorPicker: closeColorPicker
-            )
+            LookStep(droplet: droplet, draft: draft)
         case .rate:
             RateStep(droplet: droplet, draft: draft)
         case .currency:
             CurrencyStep(droplet: droplet, draft: draft)
+        case .color:
+            ColorStep(droplet: droplet, draft: draft)
         }
     }
 
@@ -195,6 +163,7 @@ private struct FlowStep: View {
         case .look: "Choose icon"
         case .rate: "Hourly rate"
         case .currency: "Currency"
+        case .color: "Choose color"
         }
     }
 
@@ -202,7 +171,7 @@ private struct FlowStep: View {
         switch draft.step {
         case .name, .look: "Continue"
         case .rate: draft.isEditing ? "Save" : "Create"
-        case .currency: "Confirm"
+        case .currency, .color: "Confirm"
         }
     }
 }
@@ -320,9 +289,6 @@ private struct NameStep: View {
 private struct LookStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
-    let isPickingColor: Bool
-    let colorWheel: WheelEngine
-    let closeColorPicker: (_ apply: Bool) -> Void
 
     @StateObject private var wheel = WheelEngine()
 
@@ -348,95 +314,67 @@ private struct LookStep: View {
         .frame(height: 44)
         .background {
             FlowKeyReceiver { key, _ in
-                if isPickingColor {
-                    switch key {
-                    case .left, .up: colorWheel.step(-1)
-                    case .right, .down: colorWheel.step(1)
-                    case .enter: closeColorPicker(true)
-                    case .escape: closeColorPicker(false)
-                    }
-                } else {
-                    switch key {
-                    case .left: wheel.step(-1)
-                    case .right: wheel.step(1)
-                    case .up, .down: break
-                    case .enter: droplet.advanceDraft()
-                    case .escape: droplet.backInDraft()
-                    }
+                switch key {
+                case .left: wheel.step(-1)
+                case .right: wheel.step(1)
+                case .up, .down: break
+                case .enter: droplet.advanceDraft()
+                case .escape: droplet.backInDraft()
                 }
             }
         }
     }
 }
 
-/// The colours on an arc over the blurred step: the chosen one large at the bottom of the
-/// curve, the rest rising and fading to either side. Picks like the icon wheel.
-private struct ColorArcPicker: View {
-    @ObservedObject var engine: WheelEngine
-    @Binding var selection: ProjectColor
-    let done: () -> Void
+/// The colours on an arc, opened from the icon step's Color pill: the chosen one large at the
+/// bottom of the curve, the rest rising and fading to either side. `pendingColor` holds the
+/// choice; Confirm applies it, Back drops it, as the currency step does.
+private struct ColorStep: View {
+    @ObservedObject var droplet: FreelanceTrackerDroplet
+    let draft: ProjectDraft
+
+    @StateObject private var wheel = WheelEngine()
 
     var body: some View {
-        VStack(spacing: DroppySpacing.md) {
-            InfiniteWheel(
-                engine: engine,
-                items: ProjectColor.allCases,
-                selection: $selection,
-                pitch: 54,
-                shape: .arc
-            ) { color, _ in
-                ColorOrb(color: color.color)
-                    .help(color.name)
-                    .accessibilityLabel(color.name)
+        InfiniteWheel(
+            engine: wheel,
+            items: ProjectColor.allCases,
+            selection: Binding(
+                get: { droplet.draft?.pendingColor ?? draft.color },
+                set: { chosen in droplet.updateDraft { $0.pendingColor = chosen } }
+            ),
+            pitch: 54,
+            shape: .arc
+        ) { color, _ in
+            ColorOrb(color: color.color)
+                .help(color.name)
+                .accessibilityLabel(color.name)
+        }
+        .background {
+            FlowKeyReceiver { key, _ in
+                switch key {
+                case .left, .up: wheel.step(-1)
+                case .right, .down: wheel.step(1)
+                case .enter: droplet.advanceDraft()
+                case .escape: droplet.backInDraft()
+                }
             }
-            .offset(y: 14)
-            .frame(height: FreelanceTrackerDroplet.navHeight + DroppySpacing.md + FreelanceTrackerDroplet.flowBodyHeight)
-
-            FlowActionRow(title: "Continue", accent: selection.color, action: done)
         }
     }
 }
 
-/// One colour of the arc: a slightly soft disc in a glass pill tinted the same colour.
+/// One colour of the arc: a glass pill tinted its colour, over a dense disc of the same colour
+/// so the glass reads at full saturation.
 private struct ColorOrb: View {
     let color: Color
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .blur(radius: 1.5)
-            .padding(3)
+        let shape = Circle()
+        Color.clear
             .frame(width: 44, height: 44)
-            .droppyGlassControlChrome(shape: AnyShape(Circle()), fill: .tinted(color))
-    }
-}
-
-/// A labelled glass button tinted in the project colour.
-private struct TintedGlassButtonStyle: ButtonStyle {
-    let color: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        TintedGlassLabel(configuration: configuration, color: color)
-    }
-}
-
-private struct TintedGlassLabel: View {
-    let configuration: ButtonStyleConfiguration
-    let color: Color
-
-    @State private var isHovering = false
-
-    var body: some View {
-        configuration.label
-            .foregroundStyle(DroppyGlassControl.neutralInk())
-            .droppyGlassControlChrome(
-                shape: AnyShape(Capsule(style: .continuous)),
-                fill: .tinted(color),
-                isHovering: isHovering,
-                isPressed: configuration.isPressed
-            )
-            .onHover { isHovering = $0 }
-            .animation(DroppyAnimation.hover, value: isHovering)
+            .droppyGlassControlChrome(shape: AnyShape(shape), fill: .tinted(color))
+            .background(shape.fill(color.opacity(0.7)))
+            .saturation(1.2)
     }
 }
 
@@ -620,11 +558,12 @@ enum WheelShape {
         }
     }
 
-    /// How far an item rises above the centre one: none on a flat wheel, a hyperbola on the arc.
+    /// Where an item sits vertically: level on a flat wheel; on the arc a hyperbola rising to
+    /// either side, the whole curve 14pt below the middle so its ends stay inside the frame.
     func lift(_ t: CGFloat) -> CGFloat {
         switch self {
         case .icon, .pill: 0
-        case .arc: -13 * ((1 + t * t).squareRoot() - 1)
+        case .arc: 14 - 13 * ((1 + t * t).squareRoot() - 1)
         }
     }
 
@@ -723,9 +662,19 @@ final class WheelEngine: ObservableObject {
         settle(on: position.rounded() + CGFloat(delta))
     }
 
+    /// A click on an item further along glides there, longer the further it is, instead of
+    /// springing across the gap in one leap.
     func go(to virtualIndex: Int) {
         snapTask?.cancel()
-        settle(on: CGFloat(virtualIndex))
+        let distance = abs(CGFloat(virtualIndex) - position)
+        guard distance > 1.5 else {
+            settle(on: CGFloat(virtualIndex))
+            return
+        }
+        withAnimation(.timingCurve(0.25, 0.1, 0.25, 1, duration: min(0.3 + 0.09 * Double(distance), 0.75))) {
+            position = CGFloat(virtualIndex)
+        }
+        report(haptic: false)
     }
 
     func dragChanged(_ translation: CGFloat) {

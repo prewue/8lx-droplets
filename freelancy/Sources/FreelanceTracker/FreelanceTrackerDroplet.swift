@@ -25,6 +25,7 @@ public enum ProjectStep: Hashable, Sendable {
     case look
     case rate
     case currency
+    case color
 }
 
 public struct SessionRename: Equatable, Sendable {
@@ -41,6 +42,7 @@ public struct ProjectDraft: Equatable, Sendable {
     public var rate: Double
     public var currency: TrackerCurrency
     public var pendingCurrency: TrackerCurrency?
+    public var pendingColor: ProjectColor?
 
     public var isEditing: Bool { editingID != nil }
 }
@@ -342,6 +344,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     public func setDraftStep(_ step: ProjectStep) {
         updateDraft {
             if step == .currency { $0.pendingCurrency = $0.currency }
+            if step == .color { $0.pendingColor = $0.color }
             $0.step = step
         }
     }
@@ -354,6 +357,14 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         }
     }
 
+    private func closeColorPicker(applying: Bool) {
+        updateDraft {
+            if applying, let chosen = $0.pendingColor { $0.color = chosen }
+            $0.pendingColor = nil
+            $0.step = .look
+        }
+    }
+
     public func advanceDraft() {
         guard let draft else { return }
         switch draft.step {
@@ -361,6 +372,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         case .look: setDraftStep(.rate)
         case .rate: commitDraft()
         case .currency: closeCurrencyPicker(applying: true)
+        case .color: closeColorPicker(applying: true)
         }
     }
 
@@ -371,6 +383,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         }
         switch draft.step {
         case .currency: closeCurrencyPicker(applying: false)
+        case .color: closeColorPicker(applying: false)
         case .rate: setDraftStep(.look)
         case .look: setDraftStep(.name)
         case .name:
