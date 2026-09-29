@@ -182,7 +182,7 @@ private struct FlowNav<Trailing: View>: View {
                 .lineLimit(1)
                 .opacity(hidesTitle ? 0 : 1)
                 .blur(radius: hidesTitle ? 4 : 0)
-                .animation(DroppyAnimation.controlMorph, value: hidesTitle)
+                .animation(.easeOut(duration: 0.16), value: hidesTitle)
             HStack(spacing: DroppySpacing.sm) {
                 CornerButton(systemImage: "chevron.left", help: "Back", action: back)
                 Spacer(minLength: 0)
@@ -193,32 +193,57 @@ private struct FlowNav<Trailing: View>: View {
     }
 }
 
-/// The currency step's search: a glass disc the size of the back button that springs open
-/// across the nav row into a field, and folds back into the disc when it closes. `query` is
-/// `nil` while it is a disc. Return confirms the currency in the middle; Escape closes it.
+/// The currency step's search: a glass disc the size of the back button that opens across the
+/// nav row into a field. Opening runs in beats: the title fades out, then the disc springs open,
+/// then the magnifier and the placeholder come in out of a blur. Closing runs them backwards.
+/// `query` is `nil` while it is a disc. Return confirms the currency in the middle; Escape closes.
 private struct NavSearch: View {
     @Binding var query: String?
     let submit: () -> Void
 
-    private var isOpen: Bool { query != nil }
+    @State private var isExpanded = false
+    @State private var showsContent = false
+    /// Bumped on every open and close, so a beat left over from the other one does nothing.
+    @State private var generation = 0
+
+    /// A spring with a visible, soft overshoot for the disc opening and closing.
+    private static let spring = Animation.spring(response: 0.48, dampingFraction: 0.68)
+    private static let blurIn = AnyTransition.modifier(
+        active: BlurFade(radius: 6, opacity: 0),
+        identity: BlurFade(radius: 0, opacity: 1)
+    )
 
     var body: some View {
         let shape = Capsule(style: .continuous)
+        // Between the disc and the open field the magnifier sits blurred out, then comes back in.
+        let iconHidden = isExpanded && !showsContent
         HStack(spacing: DroppySpacing.xsm) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(DroppyGlassControl.neutralInk())
-            if isOpen {
+                .blur(radius: iconHidden ? 6 : 0)
+                .opacity(iconHidden ? 0 : 1)
+            if showsContent {
                 FlowTextField(
                     text: Binding(get: { query ?? "" }, set: { query = $0 }),
-                    placeholder: "Search currencies",
+                    placeholder: "",
                     font: .systemFont(ofSize: 13, weight: .medium),
                     onSubmit: submit,
                     onCancel: close,
                     alignment: .left
                 )
                 .frame(height: 20)
-                .transition(.opacity)
+                .overlay(alignment: .leading) {
+                    // The placeholder is SwiftUI so it can come in out of a blur; AppKit's cannot.
+                    if (query ?? "").isEmpty {
+                        Text("Search currencies")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                            .padding(.leading, 2)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .transition(Self.blurIn)
                 Button(action: close) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
@@ -228,24 +253,57 @@ private struct NavSearch: View {
                 }
                 .buttonStyle(.plain)
                 .help("Close search")
-                .transition(.opacity)
+                .transition(Self.blurIn)
             }
         }
-        .padding(.horizontal, isOpen ? DroppySpacing.smd : 0)
-        .frame(width: isOpen ? nil : FreelanceTrackerDroplet.navHeight, height: FreelanceTrackerDroplet.navHeight)
-        .frame(maxWidth: isOpen ? .infinity : FreelanceTrackerDroplet.navHeight)
+        .padding(.horizontal, isExpanded ? DroppySpacing.smd : 0)
+        .frame(width: isExpanded ? nil : FreelanceTrackerDroplet.navHeight, height: FreelanceTrackerDroplet.navHeight)
+        .frame(maxWidth: isExpanded ? .infinity : FreelanceTrackerDroplet.navHeight)
         .droppyGlassControlChrome(shape: AnyShape(shape))
         .contentShape(shape)
         .onTapGesture {
-            guard !isOpen else { return }
-            withAnimation(DroppyAnimation.controlMorph) { query = "" }
+            if !isExpanded { open() }
         }
-        .help(isOpen ? "" : "Search currencies")
+        .help(isExpanded ? "" : "Search currencies")
         .accessibilityLabel("Search currencies")
     }
 
+    private func open() {
+        generation += 1
+        let beat = generation
+        withAnimation(.easeOut(duration: 0.16)) { query = "" }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard beat == generation else { return }
+            withAnimation(Self.spring) { isExpanded = true }
+            try? await Task.sleep(for: .milliseconds(150))
+            guard beat == generation else { return }
+            withAnimation(.easeOut(duration: 0.28)) { showsContent = true }
+        }
+    }
+
     private func close() {
-        withAnimation(DroppyAnimation.controlMorph) { query = nil }
+        generation += 1
+        let beat = generation
+        withAnimation(.easeIn(duration: 0.12)) { showsContent = false }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard beat == generation else { return }
+            withAnimation(Self.spring) { isExpanded = false }
+            try? await Task.sleep(for: .milliseconds(220))
+            guard beat == generation else { return }
+            withAnimation(.easeOut(duration: 0.18)) { query = nil }
+        }
+    }
+}
+
+/// Blur and opacity together, for things that come in out of a blur.
+private struct BlurFade: ViewModifier {
+    let radius: CGFloat
+    let opacity: Double
+
+    func body(content: Content) -> some View {
+        content.blur(radius: radius).opacity(opacity)
     }
 }
 

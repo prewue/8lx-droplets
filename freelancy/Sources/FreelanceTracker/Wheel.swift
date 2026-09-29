@@ -385,8 +385,8 @@ extension EnvironmentValues {
 /// A ruler of tick marks for a whole number, on the wheel system: a bounded `WheelEngine`, the
 /// same scrolling, dragging, clicking and arrows, the same edge fade and progressive blur. The
 /// active tick is always the one in the middle: tall and in `tint`; its two neighbours either
-/// side take the tint fainter and shorter; the rest are grey. Height and tint follow each tick's
-/// distance from the middle on smooth curves, so the ticks swell and fade as they pass it.
+/// side take the tint, fainter, at the grey ticks' height; the rest are grey. Height and tint
+/// follow each tick's distance from the middle on smooth curves, so they change as ticks pass it.
 struct RulerWheel: View {
     @ObservedObject var engine: WheelEngine
     let range: ClosedRange<Int>
@@ -465,7 +465,8 @@ struct RulerWheel: View {
     }
 
     private func tick(_ distance: CGFloat) -> some View {
-        let lift = exp(-(distance * distance) / (2 * 0.9 * 0.9))
+        // Only the active tick stands taller; its tinted neighbours keep the grey ticks' height.
+        let lift = exp(-(distance * distance) / (2 * 0.42 * 0.42))
         // Full at the middle, about 0.45 and 0.2 for the next two, gone by the third.
         let fade = distance >= 3 ? 0 : max(0, min(1, (3 - distance) / 0.8))
         let tinted = exp(-0.8 * distance) * fade
