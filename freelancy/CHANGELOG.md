@@ -10,7 +10,7 @@
 - Deleting a project or a session, starting a new session and switching projects ask first, on the shelf. The questions can be switched off in Settings.
 - Analytics: two weeks of time and money as bars, the totals, and a CSV of a project's sessions in Downloads.
 - Settings follow Droppy's own form: a colour and an icon per project, rates and session lengths you can type, and deletes that ask inline.
-- Sessions can be renamed from their card.
+- Sessions can be named as they start and renamed from their card.
 
 ## [1.0.0] - 2026-09-18
 

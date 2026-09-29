@@ -28,9 +28,16 @@ public enum ProjectStep: Hashable, Sendable {
     case color
 }
 
+/// The session name page: renaming a session, or naming one about to start on `projectID`
+/// ("Name new sessions"), with `sessionID` `nil` then.
 public struct SessionRename: Equatable, Sendable {
-    public let sessionID: UUID
+    public let sessionID: UUID?
+    public let projectID: UUID
     public var name: String
+    /// Where Back leads, and Save for a rename; a new session opens the timer.
+    public let returnScreen: TrackerScreen
+
+    public var isNewSession: Bool { sessionID == nil }
 }
 
 public struct ProjectDraft: Equatable, Sendable {
@@ -111,6 +118,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         static let moneyFirst = "moneyFirst"
         static let startsSessionsRunning = "startsSessionsRunning"
         static let asksBeforeNewSession = "asksBeforeNewSession"
+        static let namesNewSessions = "namesNewSessions"
         static let asksBeforeSwitching = "asksBeforeSwitching"
     }
 
@@ -238,7 +246,19 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     }
 
     public var asksBeforeNewSession: Bool {
-        host?.preferences.value(forKey: Keys.asksBeforeNewSession, default: true) ?? true
+        host?.preferences.value(forKey: Keys.asksBeforeNewSession, default: false) ?? false
+    }
+
+    /// "Name new sessions": the plus asks for a name before the session starts. On by default.
+    public var namesNewSessions: Bool {
+        host?.preferences.value(forKey: Keys.namesNewSessions, default: true) ?? true
+    }
+
+    public var namesNewSessionsBinding: Binding<Bool> {
+        Binding(
+            get: { self.namesNewSessions },
+            set: { self.host?.preferences.setValue($0, forKey: Keys.namesNewSessions); self.objectWillChange.send() }
+        )
     }
 
     public var asksBeforeNewSessionBinding: Binding<Bool> {
@@ -294,7 +314,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     public func startRenamingSession(_ sessionID: UUID) {
         guard let session = session(sessionID) else { return }
-        sessionRename = SessionRename(sessionID: sessionID, name: session.name)
+        sessionRename = SessionRename(sessionID: sessionID, projectID: session.projectID, name: session.name, returnScreen: .sessions)
         show(.renameSession)
     }
 
@@ -305,17 +325,24 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     }
 
     public func commitSessionRename() {
-        if let rename = sessionRename {
-            renameSession(rename.sessionID, to: rename.name)
-            host?.feedback.play(.success)
-        }
+        guard let rename = sessionRename else { return }
         sessionRename = nil
-        show(.sessions)
+        if let sessionID = rename.sessionID {
+            renameSession(sessionID, to: rename.name)
+            host?.feedback.play(.success)
+            show(rename.returnScreen)
+        } else {
+            let typed = rename.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let session = newSession(on: rename.projectID, name: typed.isEmpty ? nil : typed) {
+                flashFreshSession(session.id)
+            }
+        }
     }
 
     public func cancelSessionRename() {
+        let returnScreen = sessionRename?.returnScreen ?? .sessions
         sessionRename = nil
-        show(.sessions)
+        show(returnScreen)
     }
 
     private func syncShelfHold() {
@@ -527,9 +554,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         case .deleteSession(let id):
             deleteSession(id)
         case .newSession(let id):
-            if let session = newSession(on: id) {
-                flashFreshSession(session.id)
-            }
+            startNewSession(on: id)
         case .switchProject(let id):
             open(id)
         }
@@ -538,9 +563,30 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     public func requestNewSession(on projectID: UUID) {
         if asksBeforeNewSession {
             ask(.newSession(projectID))
+        } else {
+            startNewSession(on: projectID)
+        }
+    }
+
+    /// A new session, named first when "Name new sessions" is on. A grouped row has no room for
+    /// the name page, so there it starts at once under its default name.
+    private func startNewSession(on projectID: UUID) {
+        if namesNewSessions, !mountedGrouped {
+            startNamingNewSession(on: projectID)
         } else if let session = newSession(on: projectID) {
             flashFreshSession(session.id)
         }
+    }
+
+    private func startNamingNewSession(on projectID: UUID) {
+        let returnScreen: TrackerScreen = screen == .sessions ? .sessions : .timer
+        sessionRename = SessionRename(sessionID: nil, projectID: projectID, name: "", returnScreen: returnScreen)
+        show(.renameSession)
+    }
+
+    /// The name a new session on the project gets when none is typed.
+    public func defaultSessionName(on projectID: UUID) -> String {
+        "Session \(sessions(of: projectID).count + 1)"
     }
 
     public func requestOpen(_ projectID: UUID) {
@@ -588,14 +634,14 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     @discardableResult
     /// Starts a new session on the project. `running` overrides "Start new sessions running":
     /// Start on a project with no session means start, so it passes `true`.
-    public func newSession(on projectID: UUID, running: Bool? = nil) -> WorkSession? {
+    public func newSession(on projectID: UUID, running: Bool? = nil, name: String? = nil) -> WorkSession? {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return nil }
         let moment = Date()
         let heightBefore = widgetHeight
         let runs = running ?? startsSessionsRunning
         if runs { pauseEverything(at: moment) }
         let count = sessions(of: projectID).count
-        let session = WorkSession(projectID: projectID, name: "Session \(count + 1)", createdAt: moment, activeSince: runs ? moment : nil)
+        let session = WorkSession(projectID: projectID, name: name ?? "Session \(count + 1)", createdAt: moment, activeSince: runs ? moment : nil)
         sessions.insert(session, at: 0)
         projects[index].currentSessionID = session.id
         currentProjectID = projectID

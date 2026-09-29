@@ -55,21 +55,21 @@ struct SessionRenameScreen: View {
             .frame(height: FreelanceTrackerDroplet.flowBodyHeight)
             .accessibilityLabel("Session name")
 
-            FlowActionRow(title: "Save", accent: accent) {
+            FlowActionRow(title: droplet.sessionRename?.isNewSession == true ? "Start" : "Save", accent: accent) {
                 droplet.commitSessionRename()
             }
         }
     }
 
+    /// A rename shows the current name; a new session the name it gets when nothing is typed.
     private var placeholder: String {
-        guard let id = droplet.sessionRename?.sessionID, let session = droplet.session(id) else { return "Session name" }
-        return session.name
+        guard let rename = droplet.sessionRename else { return "Session name" }
+        if let id = rename.sessionID, let session = droplet.session(id) { return session.name }
+        return droplet.defaultSessionName(on: rename.projectID)
     }
 
     private var accent: Color? {
-        guard let id = droplet.sessionRename?.sessionID,
-              let session = droplet.session(id),
-              let project = droplet.project(session.projectID) else { return nil }
+        guard let rename = droplet.sessionRename, let project = droplet.project(rename.projectID) else { return nil }
         return project.color.color
     }
 }

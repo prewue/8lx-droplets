@@ -44,6 +44,11 @@ struct FreelanceTrackerSettings: View {
                         isOn: droplet.asksBeforeNewSessionBinding
                     )
                     DropletToggleRow(
+                        title: "Name new sessions",
+                        subtitle: "The plus asks for a name before the session starts. Left empty, it gets the next Session number.",
+                        isOn: droplet.namesNewSessionsBinding
+                    )
+                    DropletToggleRow(
                         title: "Ask before switching projects",
                         subtitle: "Picking another project while a session runs asks first. The running session keeps running either way.",
                         isOn: droplet.asksBeforeSwitchingBinding
