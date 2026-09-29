@@ -528,36 +528,47 @@ private struct CurrencyPill: View {
     }
 }
 
+/// How a wheel draws an item `t` steps from the centre (`distance` is `|t|`). Every curve is
+/// smooth through the whole ring, like a drum turning: no step where an item's speed, size or
+/// softness changes all at once.
 enum WheelShape {
     case icon
     case pill
-    /// The colour wheel: the icon wheel's geometry, and the colours soften as they move out.
+    /// The colour wheel: the icon wheel's geometry, softening a little more towards the edges.
     case orb
 
     func scale(_ distance: CGFloat) -> CGFloat {
         switch self {
-        case .icon, .orb: 0.42 + 0.58 * exp(-1.0 * distance)
-        case .pill: 0.55 + 0.45 * exp(-1.1 * distance)
+        case .icon, .orb: 0.45 + 0.55 * Self.bell(distance, width: 1.1)
+        case .pill: 0.55 + 0.45 * Self.bell(distance, width: 1.2)
         }
     }
 
     func opacity(_ distance: CGFloat) -> Double {
-        Double(max(0.2, 1 - 0.3 * distance))
+        Double(0.2 + 0.8 * Self.bell(distance, width: 1.3))
     }
 
+    /// The row gathers towards its ends on a `tanh`, full pitch at the centre, so an item slows
+    /// smoothly as it travels out instead of changing speed at a fixed step.
     func offset(_ t: CGFloat, pitch: CGFloat) -> CGFloat {
-        let d = abs(t)
-        let squeeze = d <= 3 ? 1 - 0.1 * d : 0.7
-        return pitch * t * squeeze
+        let reach = pitch * 4.3
+        return reach * tanh(t * pitch / reach)
     }
 
-    /// A blur that grows with the distance from the centre, so the colours go soft under the
-    /// edge fades: a progressive blur that follows each item as it scrolls.
+    /// A blur that eases in with the distance from the centre and levels off at the edges, so
+    /// the items go soft under the edge fades: a progressive blur that rides with each item.
     func blur(_ distance: CGFloat) -> CGFloat {
         switch self {
-        case .icon, .pill: 0
-        case .orb: min(max(distance - 0.6, 0) * 1.8, 7)
+        case .pill: 0
+        case .icon: 5 * (1 - Self.bell(distance, width: 1.85))
+        case .orb: 7 * (1 - Self.bell(distance, width: 1.55))
         }
+    }
+
+    /// 1 at the centre, falling as a Gaussian of the given width: flat at the top, so the item
+    /// in the middle eases in and out of its full size rather than popping.
+    private static func bell(_ distance: CGFloat, width: CGFloat) -> CGFloat {
+        exp(-(distance * distance) / (2 * width * width))
     }
 }
 
