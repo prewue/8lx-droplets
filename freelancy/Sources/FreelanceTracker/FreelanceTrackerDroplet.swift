@@ -817,6 +817,9 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
 
     static let timerRowHeight: CGFloat = 58
 
+    /// The start screen's content: the emblem, the name, a line, the button.
+    static let startScreenHeight: CGFloat = 124
+
     static let flowBodyHeight: CGFloat = 80
     static let flowActionHeight: CGFloat = 28
 
@@ -830,7 +833,8 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
         let gap = DroppySpacing.sm
         switch screen {
         case .menu:
-            return frame + 84
+            // With no projects the menu is the start screen instead (`StartScreen`).
+            return frame + (projects.isEmpty ? Self.startScreenHeight : 84)
 
         case .timer:
             return frame + Self.navHeight + DroppySpacing.md + Self.timerRowHeight + DroppySpacing.md + 16

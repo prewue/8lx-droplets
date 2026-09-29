@@ -35,7 +35,11 @@ struct FreelanceTrackerWidget: View {
         Group {
             switch droplet.screen {
             case .menu:
-                MenuScreen(droplet: droplet)
+                if droplet.projects.isEmpty {
+                    StartScreen(droplet: droplet)
+                } else {
+                    MenuScreen(droplet: droplet)
+                }
             case .timer:
                 if let project = droplet.currentProject {
                     TimerScreen(droplet: droplet, project: project)
@@ -709,6 +713,83 @@ private struct MenuScreen: View {
             MenuItem(systemImage: "gearshape", title: "Settings") { droplet.openSettings() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+}
+
+/// What the shelf shows before the first project, in place of the menu: an emblem, the name, a
+/// line on what it does, and one button that starts the project flow.
+struct StartScreen: View {
+    @ObservedObject var droplet: FreelanceTrackerDroplet
+
+    private var accent: Color { ProjectColor.suggested(forProjectNumber: 1).color }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            StartEmblem()
+                .frame(width: 96, height: 40)
+
+            Text("Freelancy")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+                .padding(.top, DroppySpacing.sm)
+
+            Text("Time and money for every client, right in the notch.")
+                .font(.system(size: 12))
+                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                .lineLimit(1)
+                .padding(.top, 2)
+
+            Button {
+                droplet.startNewProject()
+            } label: {
+                Text("Create project")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, DroppySpacing.xl)
+                    .frame(height: FreelanceTrackerDroplet.flowActionHeight)
+            }
+            .buttonStyle(VividGlassButtonStyle(accent: accent))
+            .padding(.top, DroppySpacing.md)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A stopwatch with the nine project colours orbiting it on a tilted ring: the dots pass behind
+/// and in front of it, smaller and dimmer at the back, and the stopwatch breathes.
+private struct StartEmblem: View {
+    private static let colors = ProjectColor.allCases.map(\.color)
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let spin = time * 0.7
+            ZStack {
+                dots(spin: spin, time: time, front: false)
+                Image(systemName: "stopwatch.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+                    .scaleEffect(1 + 0.05 * sin(time * 2.2))
+                dots(spin: spin, time: time, front: true)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func dots(spin: Double, time: Double, front: Bool) -> some View {
+        ZStack {
+            ForEach(Self.colors.indices, id: \.self) { index in
+                let angle = spin + Double(index) * 2 * .pi / Double(Self.colors.count)
+                let depth = sin(angle)
+                if (depth >= 0) == front {
+                    Circle()
+                        .fill(Self.colors[index])
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(0.65 + 0.35 * (depth + 1) / 2 + 0.1 * sin(time * 3 + Double(index)))
+                        .opacity(0.45 + 0.55 * (depth + 1) / 2)
+                        .offset(x: 40 * cos(angle), y: 9 * depth)
+                }
+            }
+        }
     }
 }
 
