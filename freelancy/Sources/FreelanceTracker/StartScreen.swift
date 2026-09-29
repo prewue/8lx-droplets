@@ -7,7 +7,11 @@ import SwiftUI
 struct StartScreen: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
-    @State private var isHoveringButton = false
+    /// The beam's clock, kept here so a hover starts and stops it in the same update that shows
+    /// and hides it: turns run before the last pause, and when it last started running (`nil`
+    /// unless the pointer is on the button).
+    @State private var beamTurns: Double = 0
+    @State private var beamRunningSince: Date?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,8 +49,15 @@ struct StartScreen: View {
                     .frame(height: 30)
             }
             .buttonStyle(ClearGlassButtonStyle())
-            .background { EdgeBeam(isActive: !isHoveringButton) }
-            .onHover { isHoveringButton = $0 }
+            .background { EdgeBeam(turnsBeforePause: beamTurns, runningSince: beamRunningSince) }
+            .onHover { hovering in
+                if hovering, beamRunningSince == nil {
+                    beamRunningSince = Date()
+                } else if !hovering, let since = beamRunningSince {
+                    beamTurns += Date().timeIntervalSince(since) / EdgeBeam.secondsPerTurn
+                    beamRunningSince = nil
+                }
+            }
             .padding(.top, DroppySpacing.xl)
             // Room for the beam's outer glow, which the widget's rectangle would clip.
             .padding(.bottom, DroppySpacing.mdl)
@@ -93,19 +104,26 @@ private struct ClearGlassLabel: View {
 }
 
 /// Create project's beam: behind its glass, a capsule of the button's own size masks a bright,
-/// saturated blue and white beam that runs round its edge until the pointer is over it (then
-/// the button is a plain one):
+/// saturated blue and white beam that runs round its edge while the pointer is over it (the rest
+/// of the time the button is a plain one):
 /// a sharp line, a close glow and a wide one, added together, and outside the button a wide
 /// blurred copy of the beam that travels with it. It only animates while it shows.
 private struct EdgeBeam: View {
-    let isActive: Bool
+    /// Where the beam stopped last, in turns, and when it started running again (`nil` while
+    /// paused): it picks up where it stopped instead of jumping to where the clock would put it.
+    let turnsBeforePause: Double
+    let runningSince: Date?
+
+    static let secondsPerTurn: Double = 2.8
+
+    private var isActive: Bool { runningSince != nil }
 
     private static let deepBlue = Color(red: 0, green: 0.35, blue: 1)
     private static let skyBlue = Color(red: 0.35, green: 0.72, blue: 1)
 
     var body: some View {
         TimelineView(.animation(minimumInterval: nil, paused: !isActive)) { timeline in
-            let turn = timeline.date.timeIntervalSinceReferenceDate / 2.8
+            let turn = turnsBeforePause + (runningSince.map { max(0, timeline.date.timeIntervalSince($0)) / Self.secondsPerTurn } ?? 0)
             let beam = AngularGradient(
                 stops: [
                     .init(color: .clear, location: 0),
@@ -124,14 +142,9 @@ private struct EdgeBeam: View {
                 // The outer glow: the beam again, blurred wide and not clipped, so it spills
                 // past the button and travels with the beam.
                 shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 12))
+                    .mask(shape.strokeBorder(lineWidth: 10))
                     .blur(radius: 14)
                     .saturation(1.4)
-                shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 6))
-                    .blur(radius: 8)
-                    .saturation(1.4)
-                    .blendMode(.plusLighter)
 
                 // Under the glass: a sharp line and two glows, clipped to the button.
                 ZStack {
