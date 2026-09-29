@@ -7,6 +7,8 @@ import SwiftUI
 struct StartScreen: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
+    @State private var isHoveringButton = false
+
     var body: some View {
         VStack(spacing: 0) {
             StartEmblem()
@@ -19,7 +21,16 @@ struct StartScreen: View {
 
             Text("Track the hours you give every client and watch what you've earned add up, right beside the notch.")
                 .font(.system(size: 13))
-                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                .lineSpacing(5)
+                .foregroundStyle(LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.25), location: 0),
+                        .init(color: .white, location: 0.5),
+                        .init(color: .white.opacity(0.25), location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .frame(maxWidth: 330)
@@ -34,9 +45,49 @@ struct StartScreen: View {
                     .frame(height: 30)
             }
             .buttonStyle(DroppyGlassButtonStyle())
+            .background { EdgeBeam(isActive: isHoveringButton) }
+            .onHover { isHoveringButton = $0 }
             .padding(.top, DroppySpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The hover on Create project: behind its glass, a capsule of the button's own size masks a
+/// bright blue and white beam that runs round its edge while the pointer is over it. It only
+/// animates while it shows.
+private struct EdgeBeam: View {
+    let isActive: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: nil, paused: !isActive)) { timeline in
+            let turn = timeline.date.timeIntervalSinceReferenceDate / 1.8
+            let beam = AngularGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .clear, location: 0.55),
+                    .init(color: FreelancyLogo.blue, location: 0.74),
+                    .init(color: .white, location: 0.86),
+                    .init(color: FreelancyLogo.blue, location: 0.94),
+                    .init(color: .clear, location: 1)
+                ],
+                center: .center,
+                angle: .degrees(turn.truncatingRemainder(dividingBy: 1) * 360)
+            )
+            ZStack {
+                Capsule(style: .continuous)
+                    .fill(beam)
+                    .mask(Capsule(style: .continuous).strokeBorder(lineWidth: 8).blur(radius: 4))
+                    .blur(radius: 4)
+                Capsule(style: .continuous)
+                    .fill(beam)
+                    .mask(Capsule(style: .continuous).strokeBorder(lineWidth: 2.5))
+            }
+            .clipShape(Capsule(style: .continuous))
+        }
+        .opacity(isActive ? 1 : 0)
+        .animation(DroppyAnimation.hover, value: isActive)
+        .allowsHitTesting(false)
     }
 }
 

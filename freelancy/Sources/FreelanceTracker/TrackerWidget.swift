@@ -940,7 +940,7 @@ private struct PairedView: View {
                 if let confirmation = droplet.pendingConfirmation {
                     ConfirmScreen(droplet: droplet, confirmation: confirmation, compact: true)
                 } else if droplet.projects.isEmpty {
-                    PairedEmptyView()
+                    PairedEmptyView(droplet: droplet)
                 } else if droplet.screen == .projects {
                     PairedProjectsView(droplet: droplet)
                 } else if droplet.screen == .sessions, let project = droplet.currentProject {
@@ -960,6 +960,18 @@ private struct PairedView: View {
 private struct PairedTimerView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let project: Project
+
+    /// The paired clock shrinks as it grows longer (`12:45:49`, `120:45:21`, a money figure),
+    /// so it always fits between the two discs of a grouped card.
+    static func clockSize(_ text: String) -> CGFloat {
+        switch text.count {
+        case ...5: 22
+        case 6...7: 20
+        case 8: 18
+        case 9: 16
+        default: 14
+        }
+    }
 
     @State private var isPressingPause = false
 
@@ -996,7 +1008,7 @@ private struct PairedTimerView: View {
                 VStack(spacing: 1) {
                     RollingDigits(
                         figures.first,
-                        font: .system(size: 22, weight: .semibold, design: .rounded),
+                        font: .system(size: PairedTimerView.clockSize(figures.first), weight: .semibold, design: .rounded),
                         color: AdaptiveColors.notchSurfacePrimaryText
                     )
                     .frame(height: 28)
@@ -1211,18 +1223,34 @@ private struct PairedProjectsView: View {
     }
 }
 
+/// The grouped row with no projects: a centred note and a button that shows Freelancy alone,
+/// where the start screen creates the first one.
 private struct PairedEmptyView: View {
+    @ObservedObject var droplet: FreelanceTrackerDroplet
+
     var body: some View {
-        VStack(alignment: .leading, spacing: DroppySpacing.xs) {
+        VStack(spacing: 0) {
             Text("No projects yet")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
-            Text("Open the widget alone to add one.")
+            Text("Open Freelancy to create your first one.")
                 .font(.system(size: 11))
-                .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-            Spacer(minLength: 0)
+                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .padding(.top, 2)
+            Button {
+                droplet.revealAlone()
+            } label: {
+                Text("Open Freelancy")
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, DroppySpacing.md)
+                    .frame(height: 24)
+            }
+            .buttonStyle(DroppyGlassButtonStyle())
+            .padding(.top, DroppySpacing.sm)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

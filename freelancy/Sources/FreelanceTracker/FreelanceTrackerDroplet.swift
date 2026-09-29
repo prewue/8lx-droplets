@@ -586,11 +586,13 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     }
 
     @discardableResult
-    public func newSession(on projectID: UUID) -> WorkSession? {
+    /// Starts a new session on the project. `running` overrides "Start new sessions running":
+    /// Start on a project with no session means start, so it passes `true`.
+    public func newSession(on projectID: UUID, running: Bool? = nil) -> WorkSession? {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return nil }
         let moment = Date()
         let heightBefore = widgetHeight
-        let runs = startsSessionsRunning
+        let runs = running ?? startsSessionsRunning
         if runs { pauseEverything(at: moment) }
         let count = sessions(of: projectID).count
         let session = WorkSession(projectID: projectID, name: "Session \(count + 1)", createdAt: moment, activeSince: runs ? moment : nil)
@@ -614,7 +616,8 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         guard let project = project(projectID) else { return }
         guard let current = currentSession(of: projectID),
               let index = sessions.firstIndex(where: { $0.id == current.id }) else {
-            newSession(on: projectID)
+            // Start with nothing to resume: the session it makes runs, whatever the preference.
+            newSession(on: projectID, running: true)
             return
         }
         let moment = Date()
@@ -835,7 +838,7 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let groupedHeight: CGFloat = hostInsets + 94
 
     /// The start screen's content: the logo and its orbit, the greeting, two lines, the button.
-    static let startScreenHeight: CGFloat = 186
+    static let startScreenHeight: CGFloat = 191
 
     static let flowBodyHeight: CGFloat = 80
     static let flowActionHeight: CGFloat = 28
@@ -913,6 +916,11 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     }
 
     public func makeWidgetSettingsPopover(_ id: ShelfWidgetID) -> AnyView? { nil }
+
+    /// Shows the widget alone on the shelf, from the grouped row's empty state.
+    public func revealAlone() {
+        _ = host?.shelf.open(revealing: Self.widgetID)
+    }
 }
 
 extension FreelanceTrackerDroplet: ShelfWidgetDynamicLayoutProviding {
