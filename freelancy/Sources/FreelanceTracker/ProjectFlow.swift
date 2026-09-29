@@ -572,12 +572,20 @@ enum WheelShape {
         }
     }
 
-    /// How far in from each edge the blur reaches: a little past the fade for icons, further for
-    /// the colours.
+    /// How far in from each edge the blur reaches, well past the fade: the blur, not the fade,
+    /// does most of the softening on the icon and colour wheels.
     var edgeBlurBand: CGFloat {
         switch self {
-        case .pill, .icon: 120
-        case .orb: 150
+        case .pill, .icon: 150
+        case .orb: 180
+        }
+    }
+
+    /// The dark fade at each edge: short where the blur softens the edge, long for the pills.
+    var fadeWidth: CGFloat {
+        switch self {
+        case .pill: 96
+        case .icon, .orb: 56
         }
     }
 
@@ -723,7 +731,6 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
 
     @State private var width: CGFloat = 0
 
-    private static var fadeWidth: CGFloat { 96 }
     private static var reach: Int { 6 }
 
     /// The items a copy of the edge blur draws: all of them for the sharp copy, and for a blurred
@@ -771,10 +778,10 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
         .mask(
             HStack(spacing: 0) {
                 LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: Self.fadeWidth)
+                    .frame(width: shape.fadeWidth)
                 Rectangle()
                 LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: Self.fadeWidth)
+                    .frame(width: shape.fadeWidth)
             }
         )
         .onAppear {
