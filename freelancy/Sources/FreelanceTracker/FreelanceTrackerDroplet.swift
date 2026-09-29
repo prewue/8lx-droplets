@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import DroppyKit
 import SwiftUI
@@ -1039,6 +1040,17 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
 
     var notchIsRunning: Bool { notchSession?.isRunning ?? false }
 
+    /// Row width for the figure in the notch: the notch plus a wing either side, each as wide as
+    /// the figure (or the glyph) needs. Changes only when the figure gains or loses a character.
+    var notchRowWidth: CGFloat? {
+        guard let host else { return nil }
+        let figure = notchShowsMoney ? notchEarnings : notchClock
+        let font = NSFont.monospacedDigitSystemFont(ofSize: DroppyLiveActivityMetrics.labelFontSize, weight: .medium)
+        let text = (figure as NSString).size(withAttributes: [.font: font]).width
+        let wing = max(ceil(text) + DroppySpacing.sm * 2, 32)
+        return host.environment.notchGeometry.closedWidth + wing * 2
+    }
+
     private func publishActivity() {
         if let running = runningSession { notchSessionID = running.id }
         guard let live = notchSession, let project = project(live.projectID) else {
@@ -1055,7 +1067,13 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
                 // Not interactive: the host opens the shelf on click, and interactive rows are wider.
                 isInteractive: false,
                 joinsPersistentActivitySet: pinsLiveActivity,
-                compactPresentation: nil,
+                // Experiment: ask for a row sized to the figure instead of the fixed wings.
+                compactPresentation: CompactLiveActivityPresentationMetadata(
+                    id: "freelancy.notch",
+                    accessibilityLabel: live.isRunning ? "Running" : "Paused",
+                    accessibilityValue: project.name,
+                    preferredWidth: notchRowWidth
+                ),
                 expandedWidgetID: Self.widgetID.rawValue
             )
         )
