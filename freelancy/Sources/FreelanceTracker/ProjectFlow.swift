@@ -326,9 +326,9 @@ private struct LookStep: View {
     }
 }
 
-/// The colours on an arc, opened from the icon step's Color pill: the chosen one large at the
-/// bottom of the curve, the rest rising and fading to either side. `pendingColor` holds the
-/// choice; Confirm applies it, Back drops it, as the currency step does.
+/// The colour wheel, opened from the icon step's Color pill: the icon wheel's row, centred, the
+/// colours softening towards the edges. `pendingColor` holds the choice; Confirm applies it,
+/// Back drops it, as the currency step does.
 private struct ColorStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
@@ -343,13 +343,14 @@ private struct ColorStep: View {
                 get: { droplet.draft?.pendingColor ?? draft.color },
                 set: { chosen in droplet.updateDraft { $0.pendingColor = chosen } }
             ),
-            pitch: 54,
-            shape: .arc
+            pitch: 56,
+            shape: .orb
         ) { color, _ in
             ColorOrb(color: color.color)
                 .help(color.name)
                 .accessibilityLabel(color.name)
         }
+        .frame(height: 56)
         .background {
             FlowKeyReceiver { key, _ in
                 switch key {
@@ -363,7 +364,7 @@ private struct ColorStep: View {
     }
 }
 
-/// One colour of the arc: a glass pill tinted its colour, over a dense disc of the same colour
+/// One colour of the wheel: a glass pill tinted its colour, over a dense disc of the same colour
 /// so the glass reads at full saturation.
 private struct ColorOrb: View {
     let color: Color
@@ -530,55 +531,32 @@ private struct CurrencyPill: View {
 enum WheelShape {
     case icon
     case pill
-    case arc
+    /// The colour wheel: the icon wheel's geometry, and the colours soften as they move out.
+    case orb
 
     func scale(_ distance: CGFloat) -> CGFloat {
         switch self {
-        case .icon: 0.42 + 0.58 * exp(-1.0 * distance)
+        case .icon, .orb: 0.42 + 0.58 * exp(-1.0 * distance)
         case .pill: 0.55 + 0.45 * exp(-1.1 * distance)
-        case .arc: 0.42 + 0.58 * exp(-0.55 * distance)
         }
     }
 
     func opacity(_ distance: CGFloat) -> Double {
-        switch self {
-        case .icon, .pill: Double(max(0.2, 1 - 0.3 * distance))
-        case .arc: Double(max(0.2, 1 - 0.05 * distance - 0.03 * distance * distance))
-        }
+        Double(max(0.2, 1 - 0.3 * distance))
     }
 
     func offset(_ t: CGFloat, pitch: CGFloat) -> CGFloat {
         let d = abs(t)
-        switch self {
-        case .icon, .pill:
-            let squeeze = d <= 3 ? 1 - 0.1 * d : 0.7
-            return pitch * t * squeeze
-        case .arc:
-            return pitch * t * (1 - 0.07 * min(d, 4))
-        }
+        let squeeze = d <= 3 ? 1 - 0.1 * d : 0.7
+        return pitch * t * squeeze
     }
 
-    /// Where an item sits vertically: level on a flat wheel; on the arc a hyperbola rising to
-    /// either side, the whole curve 14pt below the middle so its ends stay inside the frame.
-    func lift(_ t: CGFloat) -> CGFloat {
+    /// A blur that grows with the distance from the centre, so the colours go soft under the
+    /// edge fades: a progressive blur that follows each item as it scrolls.
+    func blur(_ distance: CGFloat) -> CGFloat {
         switch self {
         case .icon, .pill: 0
-        case .arc: 14 - 13 * ((1 + t * t).squareRoot() - 1)
-        }
-    }
-
-    /// How many items either side of the centre are drawn: the arc shows each colour once.
-    var reach: Int {
-        switch self {
-        case .icon, .pill: 6
-        case .arc: 4
-        }
-    }
-
-    var fadeWidth: CGFloat {
-        switch self {
-        case .icon, .pill: 96
-        case .arc: 40
+        case .orb: min(max(distance - 0.6, 0) * 1.8, 7)
         }
     }
 }
@@ -716,17 +694,21 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
     let shape: WheelShape
     @ViewBuilder let cell: (Item, Bool) -> Cell
 
+    private static var fadeWidth: CGFloat { 96 }
+    private static var reach: Int { 6 }
+
     var body: some View {
         let position = engine.position
         let centre = Int(position.rounded())
         ZStack {
-            ForEach((centre - shape.reach)...(centre + shape.reach), id: \.self) { virtual in
+            ForEach((centre - Self.reach)...(centre + Self.reach), id: \.self) { virtual in
                 let t = CGFloat(virtual) - position
                 let distance = abs(t)
                 cell(items[engine.wrap(virtual)], distance < 0.5)
                     .scaleEffect(shape.scale(distance))
                     .opacity(shape.opacity(distance))
-                    .offset(x: shape.offset(t, pitch: pitch), y: shape.lift(t))
+                    .blur(radius: shape.blur(distance))
+                    .offset(x: shape.offset(t, pitch: pitch))
                     .zIndex(-Double(distance))
                     .onTapGesture { engine.go(to: virtual) }
             }
@@ -747,10 +729,10 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
         .mask(
             HStack(spacing: 0) {
                 LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: shape.fadeWidth)
+                    .frame(width: Self.fadeWidth)
                 Rectangle()
                 LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: shape.fadeWidth)
+                    .frame(width: Self.fadeWidth)
             }
         )
         .onAppear {
