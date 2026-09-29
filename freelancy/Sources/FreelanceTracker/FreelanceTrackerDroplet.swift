@@ -818,7 +818,7 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let timerRowHeight: CGFloat = 58
 
     /// The start screen's content: the logo and its orbit, the greeting, two lines, the button.
-    static let startScreenHeight: CGFloat = 178
+    static let startScreenHeight: CGFloat = 186
 
     static let flowBodyHeight: CGFloat = 80
     static let flowActionHeight: CGFloat = 28

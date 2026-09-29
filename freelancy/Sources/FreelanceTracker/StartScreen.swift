@@ -10,7 +10,7 @@ struct StartScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             StartEmblem()
-                .frame(width: 280, height: 64)
+                .frame(width: 340, height: 64)
 
             Text("Welcome to Freelancy")
                 .font(.system(size: 20, weight: .semibold))
@@ -34,17 +34,21 @@ struct StartScreen: View {
                     .frame(height: 30)
             }
             .buttonStyle(DroppyGlassButtonStyle())
-            .padding(.top, DroppySpacing.md)
+            .padding(.top, DroppySpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 /// The logo with its long hand turning, the lit dots trailing it, and glass pills of earnings
-/// circling it on a tilted ring, passing behind and in front of it.
+/// (and the maker's credit, tinted in the logo's blue) circling it on a tilted ring, passing
+/// behind and in front of it.
 private struct StartEmblem: View {
     private static let logoSize: CGFloat = 54
-    private static let earnings = ["+$124", "+$81", "+$212", "+$56", "+$97", "+$38"]
+    private static let badges: [(text: String, tint: Color?)] = [
+        ("+$124", nil), ("+$81", nil), ("Designed by 8LX", FreelancyLogo.blue),
+        ("+$56", nil), ("+$97", nil), ("+$38", nil)
+    ]
 
     var body: some View {
         TimelineView(.animation) { timeline in
@@ -61,14 +65,14 @@ private struct StartEmblem: View {
 
     private func pills(spin: Double, front: Bool) -> some View {
         ZStack {
-            ForEach(Self.earnings.indices, id: \.self) { index in
-                let angle = spin + Double(index) * 2 * .pi / Double(Self.earnings.count)
+            ForEach(Self.badges.indices, id: \.self) { index in
+                let angle = spin + Double(index) * 2 * .pi / Double(Self.badges.count)
                 let depth = sin(angle)
                 if (depth >= 0) == front {
-                    EarningPill(text: Self.earnings[index])
+                    EarningPill(text: Self.badges[index].text, tint: Self.badges[index].tint)
                         .scaleEffect(0.72 + 0.28 * (depth + 1) / 2)
                         .opacity(0.35 + 0.65 * (depth + 1) / 2)
-                        .offset(x: 104 * cos(angle), y: 14 * depth)
+                        .offset(x: 118 * cos(angle), y: 14 * depth)
                 }
             }
         }
@@ -77,15 +81,19 @@ private struct StartEmblem: View {
 
 private struct EarningPill: View {
     let text: String
+    var tint: Color?
 
     var body: some View {
         Text(verbatim: text)
             .font(.system(size: 11, weight: .semibold, design: .rounded))
             .monospacedDigit()
-            .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+            .foregroundStyle(tint == nil ? AdaptiveColors.notchSurfacePrimaryText : .white)
             .padding(.horizontal, DroppySpacing.sm)
             .frame(height: 20)
-            .droppyGlassControlChrome(shape: AnyShape(Capsule(style: .continuous)), fill: .veil)
+            .droppyGlassControlChrome(
+                shape: AnyShape(Capsule(style: .continuous)),
+                fill: tint.map { .tinted($0) } ?? .veil
+            )
     }
 }
 
@@ -98,6 +106,9 @@ struct FreelancyLogo: View {
     /// The long hand, clockwise from twelve; the dots' light follows it.
     var hand: Angle = .zero
 
+    /// The logo's middle blue, `#167FFF`.
+    static let blue = Color(red: 0.086, green: 0.498, blue: 1)
+
     private static let canvas: CGFloat = 1224
     private static let short = Angle.degrees(131.2)
 
@@ -107,7 +118,7 @@ struct FreelancyLogo: View {
             LinearGradient(
                 stops: [
                     .init(color: Color(red: 0, green: 0.192, blue: 0.820), location: 0),
-                    .init(color: Color(red: 0.086, green: 0.498, blue: 1), location: 0.5),
+                    .init(color: Self.blue, location: 0.5),
                     .init(color: Color(red: 0.651, green: 0.808, blue: 1), location: 0.75),
                     .init(color: .white, location: 1)
                 ],
