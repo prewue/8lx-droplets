@@ -1223,22 +1223,14 @@ private struct PairedProjectsView: View {
     }
 }
 
-/// The grouped row with no projects: a centred note and a button that shows Freelancy alone,
+/// The grouped row with no projects: the logo turning, and a button that shows Freelancy alone,
 /// where the start screen creates the first one.
 private struct PairedEmptyView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text("No projects yet")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
-            Text("Open Freelancy to create your first one.")
-                .font(.system(size: 11))
-                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .padding(.top, 2)
+        VStack(spacing: DroppySpacing.smd) {
+            TurningLogo(size: 40)
             Button {
                 droplet.revealAlone()
             } label: {
@@ -1248,7 +1240,6 @@ private struct PairedEmptyView: View {
                     .frame(height: 24)
             }
             .buttonStyle(DroppyGlassButtonStyle())
-            .padding(.top, DroppySpacing.sm)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

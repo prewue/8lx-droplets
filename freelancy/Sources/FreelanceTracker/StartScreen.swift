@@ -34,7 +34,7 @@ struct StartScreen: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .frame(maxWidth: 330)
-                .padding(.top, DroppySpacing.xs)
+                .padding(.top, DroppySpacing.sm)
 
             Button {
                 droplet.startNewProject()
@@ -127,6 +127,20 @@ private struct StartEmblem: View {
                 }
             }
         }
+    }
+}
+
+/// The logo on its own with its long hand turning and the dots' light trailing it, for places
+/// too narrow for the orbit (the grouped row's empty state).
+struct TurningLogo: View {
+    let size: CGFloat
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            FreelancyLogo(size: size, hand: .degrees((time * 60).truncatingRemainder(dividingBy: 360)))
+        }
+        .accessibilityHidden(true)
     }
 }
 
