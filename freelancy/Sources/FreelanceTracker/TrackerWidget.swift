@@ -244,7 +244,7 @@ struct ListCard: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Button(action: select) {
-                VStack(alignment: .leading, spacing: DroppySpacing.xsm) {
+                VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: DroppySpacing.xs) {
                         if let titleSymbol {
                             Image(systemName: titleSymbol)
@@ -264,12 +264,14 @@ struct ListCard: View {
                         }
                     }
                     .frame(height: 16)
+                    Spacer(minLength: 2)
                     Text(verbatim: headline)
                         .font(.system(size: 20, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .lineLimit(1)
                         .foregroundStyle(isCurrent ? AdaptiveColors.notchSurfacePrimaryText : AdaptiveColors.notchSurfaceSecondaryText)
                         .frame(height: 24)
+                    Spacer(minLength: 2)
                     HStack(spacing: DroppySpacing.sm) {
                         Text(verbatim: detail)
                             .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -286,8 +288,7 @@ struct ListCard: View {
                 }
                 .padding(.vertical, DroppySpacing.sm)
                 .padding(.horizontal, DroppySpacing.mdl)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: FreelanceTrackerDroplet.sessionCardHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: DroppyRadius.medium, style: .continuous)
                         .fill(isHovering ? AdaptiveColors.notchSurfaceCardHoverFill : AdaptiveColors.notchSurfaceCardFill)
@@ -332,14 +333,13 @@ struct ListCard: View {
     }
 }
 
+/// One row of cards that scrolls sideways and takes the height the screen has left.
 struct CardRow<Item: Identifiable, Card: View>: View {
     let items: [Item]
-    let height: CGFloat
     let card: (Item) -> Card
 
-    init(items: [Item], height: CGFloat, @ViewBuilder card: @escaping (Item) -> Card) {
+    init(items: [Item], @ViewBuilder card: @escaping (Item) -> Card) {
         self.items = items
-        self.height = height
         self.card = card
     }
 
@@ -350,21 +350,20 @@ struct CardRow<Item: Identifiable, Card: View>: View {
                     card(item)
                 }
             }
+            .frame(maxHeight: .infinity)
         }
-        .frame(height: height)
+        .frame(maxHeight: .infinity)
     }
 }
 
 struct EmptyNote: View {
     let text: String
-    var height: CGFloat = FreelanceTrackerDroplet.sessionCardHeight
 
     var body: some View {
         Text(verbatim: text)
             .font(.system(size: 12))
             .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-            .frame(maxWidth: .infinity)
-            .frame(height: height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -533,7 +532,7 @@ struct ProjectCard: View {
         let color = project.color.color
         ZStack(alignment: .topTrailing) {
             Button(action: select) {
-                VStack(alignment: .leading, spacing: DroppySpacing.smd) {
+                VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: DroppySpacing.xsm) {
                         Image(systemName: project.icon.symbol)
                             .font(.system(size: 13, weight: .semibold))
@@ -548,14 +547,18 @@ struct ProjectCard: View {
                         }
                     }
                     .foregroundStyle(color)
-                    .frame(height: 18)
+                    .frame(height: 16)
+
+                    Spacer(minLength: 2)
 
                     Text(verbatim: headline)
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .lineLimit(1)
                         .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
-                        .frame(height: 26)
+                        .frame(height: 24)
+
+                    Spacer(minLength: 2)
 
                     HStack(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: 1) {
@@ -577,9 +580,10 @@ struct ProjectCard: View {
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                 }
-                .padding(.vertical, DroppySpacing.smd)
+                .padding(.vertical, DroppySpacing.sm)
                 .padding(.horizontal, DroppySpacing.md)
-                .frame(width: FreelanceTrackerDroplet.cardWidth, height: FreelanceTrackerDroplet.projectCardHeight, alignment: .topLeading)
+                .frame(width: FreelanceTrackerDroplet.cardWidth, alignment: .topLeading)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
                 .contentShape(RoundedRectangle(cornerRadius: DroppyRadius.large, style: .continuous))
             }
             .buttonStyle(TintedCardButtonStyle(color: color))
@@ -860,9 +864,9 @@ private struct ProjectsScreen: View {
             }
 
             if droplet.projects.isEmpty {
-                EmptyNote(text: "No projects yet. Press the plus to add one.", height: FreelanceTrackerDroplet.projectCardHeight)
+                EmptyNote(text: "No projects yet. Press the plus to add one.")
             } else {
-                CardRow(items: droplet.projects, height: FreelanceTrackerDroplet.projectCardHeight) { project in
+                CardRow(items: droplet.projects) { project in
                     let total = droplet.totalSeconds(of: project.id)
                     let money = project.formattedEarnings(for: total, compact: true)
                     let time = TrackerClock.full(total)
@@ -902,7 +906,7 @@ private struct SessionsScreen: View {
             if sessions.isEmpty {
                 EmptyNote(text: "No sessions yet. Press the plus to start one.")
             } else {
-                CardRow(items: sessions, height: FreelanceTrackerDroplet.sessionCardHeight) { session in
+                CardRow(items: sessions) { session in
                     let seconds = session.duration(at: droplet.now)
                     let figures = droplet.ordered(time: TrackerClock.full(seconds), money: project.formattedEarnings(for: seconds, compact: true))
                     ListCard(

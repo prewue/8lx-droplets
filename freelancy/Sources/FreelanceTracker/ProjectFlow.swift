@@ -91,35 +91,82 @@ private struct FlowStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
 
+    /// The colour the picker opened on, set while the colour arc is up: Escape goes back to it.
+    @State private var colorOrigin: ProjectColor?
+    @StateObject private var colorWheel = WheelEngine()
+
+    private var isPickingColor: Bool { colorOrigin != nil }
+    private var color: ProjectColor { droplet.draft?.color ?? draft.color }
+
     var body: some View {
-        VStack(spacing: DroppySpacing.md) {
-            FlowNav(title: title, back: { droplet.backInDraft() }) {
-                if draft.step == .rate {
-                    Button {
-                        droplet.setDraftStep(.currency)
-                    } label: {
-                        Text(verbatim: draft.currency.code)
-                            .font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, DroppySpacing.md)
-                            .frame(height: FreelanceTrackerDroplet.navHeight)
+        ZStack(alignment: .top) {
+            VStack(spacing: DroppySpacing.md) {
+                FlowNav(title: title, back: { droplet.backInDraft() }) {
+                    if draft.step == .rate {
+                        Button {
+                            droplet.setDraftStep(.currency)
+                        } label: {
+                            Text(verbatim: draft.currency.code)
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, DroppySpacing.md)
+                                .frame(height: FreelanceTrackerDroplet.navHeight)
+                        }
+                        .buttonStyle(DroppyGlassButtonStyle())
+                        .help("Change the currency, \(draft.currency.name)")
+                        .accessibilityLabel("Currency, \(draft.currency.name)")
+                    } else if draft.step == .look {
+                        Button(action: openColorPicker) {
+                            Text("Color")
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, DroppySpacing.md)
+                                .frame(height: FreelanceTrackerDroplet.navHeight)
+                        }
+                        .buttonStyle(TintedGlassButtonStyle(color: color.color))
+                        .help("Change the colour, \(color.name)")
+                        .accessibilityLabel("Colour, \(color.name)")
                     }
-                    .buttonStyle(DroppyGlassButtonStyle())
-                    .help("Change the currency, \(draft.currency.name)")
-                    .accessibilityLabel("Currency, \(draft.currency.name)")
+                }
+
+                content
+                    .frame(maxWidth: .infinity)
+                    .frame(height: FreelanceTrackerDroplet.flowBodyHeight)
+
+                FlowActionRow(
+                    title: actionTitle,
+                    accent: draft.step == .rate ? draft.color.color : nil
+                ) {
+                    droplet.advanceDraft()
                 }
             }
+            .blur(radius: isPickingColor ? 10 : 0)
+            .opacity(isPickingColor ? 0.25 : 1)
+            .allowsHitTesting(!isPickingColor)
 
-            content
-                .frame(maxWidth: .infinity)
-                .frame(height: FreelanceTrackerDroplet.flowBodyHeight)
-
-            FlowActionRow(
-                title: actionTitle,
-                accent: draft.step == .rate ? draft.color.color : nil
-            ) {
-                droplet.advanceDraft()
+            if isPickingColor {
+                ColorArcPicker(
+                    engine: colorWheel,
+                    selection: Binding(
+                        get: { color },
+                        set: { chosen in droplet.updateDraft { $0.color = chosen } }
+                    ),
+                    done: { closeColorPicker(apply: true) }
+                )
+                .transition(DroppyTransition.element)
             }
         }
+        .animation(DroppyAnimation.state, value: isPickingColor)
+    }
+
+    private func openColorPicker() {
+        colorOrigin = color
+    }
+
+    private func closeColorPicker(apply: Bool) {
+        guard let origin = colorOrigin else { return }
+        if !apply {
+            droplet.updateDraft { $0.color = origin }
+        }
+        colorOrigin = nil
     }
 
     @ViewBuilder
@@ -128,7 +175,13 @@ private struct FlowStep: View {
         case .name:
             NameStep(droplet: droplet, draft: draft)
         case .look:
-            LookStep(droplet: droplet, draft: draft)
+            LookStep(
+                droplet: droplet,
+                draft: draft,
+                isPickingColor: isPickingColor,
+                colorWheel: colorWheel,
+                closeColorPicker: closeColorPicker
+            )
         case .rate:
             RateStep(droplet: droplet, draft: draft)
         case .currency:
@@ -267,85 +320,123 @@ private struct NameStep: View {
 private struct LookStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
+    let isPickingColor: Bool
+    let colorWheel: WheelEngine
+    let closeColorPicker: (_ apply: Bool) -> Void
 
     @StateObject private var wheel = WheelEngine()
 
     private var color: ProjectColor { droplet.draft?.color ?? draft.color }
 
     var body: some View {
-        VStack(spacing: DroppySpacing.md) {
-            InfiniteWheel(
-                engine: wheel,
-                items: ProjectIcon.allCases,
-                selection: Binding(
-                    get: { droplet.draft?.icon ?? draft.icon },
-                    set: { icon in droplet.updateDraft { $0.icon = icon } }
-                ),
-                pitch: 56,
-                shape: .icon
-            ) { icon, isCentred in
-                Image(systemName: icon.symbol)
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(isCentred ? color.color : AdaptiveColors.notchSurfaceSecondaryText)
-                    .frame(width: 48, height: 44)
-                    .accessibilityLabel(icon.name)
-            }
-            .frame(height: 44)
-
-            ColorDots(
-                selection: Binding(
-                    get: { color },
-                    set: { chosen in droplet.updateDraft { $0.color = chosen } }
-                )
-            )
-            .frame(height: 20)
+        InfiniteWheel(
+            engine: wheel,
+            items: ProjectIcon.allCases,
+            selection: Binding(
+                get: { droplet.draft?.icon ?? draft.icon },
+                set: { icon in droplet.updateDraft { $0.icon = icon } }
+            ),
+            pitch: 56,
+            shape: .icon
+        ) { icon, isCentred in
+            Image(systemName: icon.symbol)
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(isCentred ? color.color : AdaptiveColors.notchSurfaceSecondaryText)
+                .frame(width: 48, height: 44)
+                .accessibilityLabel(icon.name)
         }
+        .frame(height: 44)
         .background {
-            FlowKeyReceiver { key, shift in
-                switch key {
-                case .left: wheel.step(-1)
-                case .right: wheel.step(1)
-                case .up: cycleColor(-1)
-                case .down: cycleColor(1)
-                case .enter: droplet.advanceDraft()
-                case .escape: droplet.backInDraft()
+            FlowKeyReceiver { key, _ in
+                if isPickingColor {
+                    switch key {
+                    case .left, .up: colorWheel.step(-1)
+                    case .right, .down: colorWheel.step(1)
+                    case .enter: closeColorPicker(true)
+                    case .escape: closeColorPicker(false)
+                    }
+                } else {
+                    switch key {
+                    case .left: wheel.step(-1)
+                    case .right: wheel.step(1)
+                    case .up, .down: break
+                    case .enter: droplet.advanceDraft()
+                    case .escape: droplet.backInDraft()
+                    }
                 }
             }
         }
     }
+}
 
-    private func cycleColor(_ delta: Int) {
-        let all = ProjectColor.allCases
-        guard let index = all.firstIndex(of: color) else { return }
-        let next = all[(index + delta + all.count) % all.count]
-        withAnimation(DroppyAnimation.segmentedSelection) {
-            droplet.updateDraft { $0.color = next }
+/// The colours on an arc over the blurred step: the chosen one large at the bottom of the
+/// curve, the rest rising and fading to either side. Picks like the icon wheel.
+private struct ColorArcPicker: View {
+    @ObservedObject var engine: WheelEngine
+    @Binding var selection: ProjectColor
+    let done: () -> Void
+
+    var body: some View {
+        VStack(spacing: DroppySpacing.md) {
+            InfiniteWheel(
+                engine: engine,
+                items: ProjectColor.allCases,
+                selection: $selection,
+                pitch: 54,
+                shape: .arc
+            ) { color, _ in
+                ColorOrb(color: color.color)
+                    .help(color.name)
+                    .accessibilityLabel(color.name)
+            }
+            .offset(y: 14)
+            .frame(height: FreelanceTrackerDroplet.navHeight + DroppySpacing.md + FreelanceTrackerDroplet.flowBodyHeight)
+
+            FlowActionRow(title: "Continue", accent: selection.color, action: done)
         }
     }
 }
 
-private struct ColorDots: View {
-    @Binding var selection: ProjectColor
+/// One colour of the arc: a slightly soft disc in a glass pill tinted the same colour.
+private struct ColorOrb: View {
+    let color: Color
 
     var body: some View {
-        HStack(spacing: DroppySpacing.sm) {
-            ForEach(ProjectColor.allCases) { color in
-                let isSelected = color == selection
-                Circle()
-                    .fill(color.color)
-                    .frame(width: 12, height: 12)
-                    .scaleEffect(isSelected ? 1.5 : 1)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Circle())
-                    .onTapGesture {
-                        withAnimation(DroppyAnimation.segmentedSelection) { selection = color }
-                    }
-                    .help(color.name)
-                    .accessibilityLabel(color.name)
-                    .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-            }
-        }
-        .animation(DroppyAnimation.segmentedSelection, value: selection)
+        Circle()
+            .fill(color)
+            .blur(radius: 1.5)
+            .padding(3)
+            .frame(width: 44, height: 44)
+            .droppyGlassControlChrome(shape: AnyShape(Circle()), fill: .tinted(color))
+    }
+}
+
+/// A labelled glass button tinted in the project colour.
+private struct TintedGlassButtonStyle: ButtonStyle {
+    let color: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        TintedGlassLabel(configuration: configuration, color: color)
+    }
+}
+
+private struct TintedGlassLabel: View {
+    let configuration: ButtonStyleConfiguration
+    let color: Color
+
+    @State private var isHovering = false
+
+    var body: some View {
+        configuration.label
+            .foregroundStyle(DroppyGlassControl.neutralInk())
+            .droppyGlassControlChrome(
+                shape: AnyShape(Capsule(style: .continuous)),
+                fill: .tinted(color),
+                isHovering: isHovering,
+                isPressed: configuration.isPressed
+            )
+            .onHover { isHovering = $0 }
+            .animation(DroppyAnimation.hover, value: isHovering)
     }
 }
 
@@ -501,22 +592,55 @@ private struct CurrencyPill: View {
 enum WheelShape {
     case icon
     case pill
+    case arc
 
     func scale(_ distance: CGFloat) -> CGFloat {
         switch self {
         case .icon: 0.42 + 0.58 * exp(-1.0 * distance)
         case .pill: 0.55 + 0.45 * exp(-1.1 * distance)
+        case .arc: 0.42 + 0.58 * exp(-0.55 * distance)
         }
     }
 
     func opacity(_ distance: CGFloat) -> Double {
-        Double(max(0.2, 1 - 0.3 * distance))
+        switch self {
+        case .icon, .pill: Double(max(0.2, 1 - 0.3 * distance))
+        case .arc: Double(max(0.2, 1 - 0.05 * distance - 0.03 * distance * distance))
+        }
     }
 
     func offset(_ t: CGFloat, pitch: CGFloat) -> CGFloat {
         let d = abs(t)
-        let squeeze = d <= 3 ? 1 - 0.1 * d : 0.7
-        return pitch * t * squeeze
+        switch self {
+        case .icon, .pill:
+            let squeeze = d <= 3 ? 1 - 0.1 * d : 0.7
+            return pitch * t * squeeze
+        case .arc:
+            return pitch * t * (1 - 0.07 * min(d, 4))
+        }
+    }
+
+    /// How far an item rises above the centre one: none on a flat wheel, a hyperbola on the arc.
+    func lift(_ t: CGFloat) -> CGFloat {
+        switch self {
+        case .icon, .pill: 0
+        case .arc: -13 * ((1 + t * t).squareRoot() - 1)
+        }
+    }
+
+    /// How many items either side of the centre are drawn: the arc shows each colour once.
+    var reach: Int {
+        switch self {
+        case .icon, .pill: 6
+        case .arc: 4
+        }
+    }
+
+    var fadeWidth: CGFloat {
+        switch self {
+        case .icon, .pill: 96
+        case .arc: 40
+        }
     }
 }
 
@@ -643,20 +767,17 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
     let shape: WheelShape
     @ViewBuilder let cell: (Item, Bool) -> Cell
 
-    private static var fadeWidth: CGFloat { 96 }
-    private static var reach: Int { 6 }
-
     var body: some View {
         let position = engine.position
         let centre = Int(position.rounded())
         ZStack {
-            ForEach((centre - Self.reach)...(centre + Self.reach), id: \.self) { virtual in
+            ForEach((centre - shape.reach)...(centre + shape.reach), id: \.self) { virtual in
                 let t = CGFloat(virtual) - position
                 let distance = abs(t)
                 cell(items[engine.wrap(virtual)], distance < 0.5)
                     .scaleEffect(shape.scale(distance))
                     .opacity(shape.opacity(distance))
-                    .offset(x: shape.offset(t, pitch: pitch))
+                    .offset(x: shape.offset(t, pitch: pitch), y: shape.lift(t))
                     .zIndex(-Double(distance))
                     .onTapGesture { engine.go(to: virtual) }
             }
@@ -677,10 +798,10 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
         .mask(
             HStack(spacing: 0) {
                 LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: Self.fadeWidth)
+                    .frame(width: shape.fadeWidth)
                 Rectangle()
                 LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: Self.fadeWidth)
+                    .frame(width: shape.fadeWidth)
             }
         )
         .onAppear {
@@ -744,9 +865,19 @@ struct FlowKeyReceiver: NSViewRepresentable {
     }
 }
 
+/// Turns the arrows, Return and Escape into callbacks for a step with no text field.
+///
+/// It listens through a local key monitor rather than as first responder: a click on the step
+/// (a colour, an icon, the wheel) hands first responder to the SwiftUI hosting view, which
+/// drops Return, and a view that had to win first responder back lost Return for good once
+/// its retries ran out. Only the newest receiver answers, because a step fading out and the
+/// one fading in are both on screen for a moment, and a field editor keeps its own keys.
 final class FlowKeyView: NSView {
     var handler: ((FlowKey, Bool) -> Void)?
     private var keyObserver: NSObjectProtocol?
+    private var keyMonitor: Any?
+
+    private static weak var newest: FlowKeyView?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -756,10 +887,15 @@ final class FlowKeyView: NSView {
         super.viewDidMoveToWindow()
         stopWatching()
         guard let window else { return }
+        Self.newest = self
         keyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.claimFocus() }
+        }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let handled = MainActor.assumeIsolated { self?.handle(event) ?? false }
+            return handled ? nil : event
         }
         FlowFocus.schedule { [weak self] in self?.claimFocus() }
     }
@@ -767,6 +903,9 @@ final class FlowKeyView: NSView {
     func stopWatching() {
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
         keyObserver = nil
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+        if Self.newest === self { Self.newest = nil }
     }
 
     private func claimFocus() {
@@ -776,9 +915,10 @@ final class FlowKeyView: NSView {
         window.makeFirstResponder(self)
     }
 
-    override func keyDown(with event: NSEvent) {
-        let shift = event.modifierFlags.contains(.shift)
-        let key: FlowKey?
+    private func handle(_ event: NSEvent) -> Bool {
+        guard Self.newest === self, let window, event.window === window, let handler else { return false }
+        if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { return false }
+        let key: FlowKey
         switch event.keyCode {
         case 123: key = .left
         case 124: key = .right
@@ -786,13 +926,10 @@ final class FlowKeyView: NSView {
         case 125: key = .down
         case 36, 76: key = .enter
         case 53: key = .escape
-        default: key = nil
+        default: return false
         }
-        if let key, let handler {
-            handler(key, shift)
-        } else {
-            super.keyDown(with: event)
-        }
+        handler(key, event.modifierFlags.contains(.shift))
+        return true
     }
 }
 

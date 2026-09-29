@@ -797,8 +797,9 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let navHeight: CGFloat = 28
 
     static let cardWidth: CGFloat = 176
-    static let projectCardHeight: CGFloat = 112
-    static let sessionCardHeight: CGFloat = 90
+    /// The card row's share of the Projects and Sessions screens. Both screens come to the
+    /// timer's height, so moving between them never resizes the shelf; the cards fill it.
+    static let cardRowHeight: CGFloat = 90
     static let cardSpacing: CGFloat = 12
 
     static let timerRowHeight: CGFloat = 58
@@ -820,10 +821,8 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
 
         case .timer:
             return frame + Self.navHeight + DroppySpacing.md + Self.timerRowHeight + DroppySpacing.md + 16
-        case .projects:
-            return frame + Self.navHeight + gap + Self.projectCardHeight
-        case .sessions:
-            return frame + Self.navHeight + gap + Self.sessionCardHeight
+        case .projects, .sessions:
+            return frame + Self.navHeight + gap + Self.cardRowHeight
         case .newProject, .editProject, .renameSession:
             return frame + Self.navHeight + DroppySpacing.md + Self.flowBodyHeight + DroppySpacing.md + Self.flowActionHeight
         case .analytics:
