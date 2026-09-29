@@ -93,6 +93,12 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     private var ticker: Task<Void, Never>?
     private let activitySubject = CurrentValueSubject<LiveActivityState?, Never>(nil)
+    /// Tells a host that reads `ShelfWidgetDynamicLayoutProviding` to re-read the traits.
+    private let layoutSubject = PassthroughSubject<ShelfWidgetID, Never>()
+    /// Whether Droppy last mounted the widget in a grouped row. The descriptor has one height
+    /// for both compositions and `currentLayoutTraits` gets no context, so the height follows
+    /// the mount the host last asked for.
+    private var mountedGrouped = false
 
     private enum Keys {
         static let projects = "projects"
@@ -317,7 +323,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         guard wants != holdsShelf, let host else { return }
         holdsShelf = wants
         _ = host.shelf.setHoldsOpen(wants)
-        host.shelf.invalidateLayout(for: Self.widgetID)
+        publishLayoutChange()
     }
 
     public var draftPlaceholderName: String {
@@ -727,6 +733,13 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     private func refreshLayout(from previousHeight: CGFloat) {
         guard widgetHeight != previousHeight else { return }
+        publishLayoutChange()
+    }
+
+    /// Asks the host to re-read the widget's traits: through the dynamic-layout publisher on
+    /// hosts that read it (DroppyKit 1.20.0 and later) and `invalidateLayout` on the rest.
+    private func publishLayoutChange() {
+        layoutSubject.send(Self.widgetID)
         host?.shelf.invalidateLayout(for: Self.widgetID)
     }
 
@@ -817,6 +830,10 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
 
     static let timerRowHeight: CGFloat = 58
 
+    /// The widget in a grouped row: the paired timer's badge, clock and bottom row (94) and the
+    /// host's insets. The paired lists, the empty state and a compact question fit in it too.
+    static let groupedHeight: CGFloat = hostInsets + 94
+
     /// The start screen's content: the logo and its orbit, the greeting, two lines, the button.
     static let startScreenHeight: CGFloat = 186
 
@@ -829,6 +846,9 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let pageDotsGap: CGFloat = 16
 
     var widgetHeight: CGFloat {
+        // A grouped row shares one height with its neighbours: the compact compositions all fit
+        // in `groupedHeight`, whatever screen the solo widget was on.
+        if mountedGrouped { return Self.groupedHeight }
         let frame = Self.hostInsets
         let gap = DroppySpacing.sm
         switch screen {
@@ -837,6 +857,8 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
             return frame + (projects.isEmpty ? Self.startScreenHeight : 84)
 
         case .timer:
+            // A timer with no project to show is the start screen (`NoProjectScreen`).
+            if currentProject == nil { return frame + Self.startScreenHeight }
             return frame + Self.navHeight + DroppySpacing.md + Self.timerRowHeight + DroppySpacing.md + 16
         case .projects, .sessions:
             return frame + Self.navHeight + gap + Self.cardRowHeight
@@ -853,26 +875,56 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
                 id: Self.widgetID,
                 title: "Freelancy",
                 systemImage: "stopwatch.fill",
-                layoutTraits: ShelfWidgetLayoutTraits(
-                    preferredSoloWidth: 420,
-                    preferredPairedWidth: 210,
-                    contentHeight: .fixed(widgetHeight)
-                ),
+                layoutTraits: layoutTraits,
                 focusPolicy: isInProjectFlow ? .keyboardFocusable : .none,
                 searchKeywords: ["time", "timer", "billing", "hourly", "rate", "money", "freelance", "invoice", "project"]
             )
         ]
     }
 
+    var layoutTraits: ShelfWidgetLayoutTraits {
+        ShelfWidgetLayoutTraits(
+            preferredSoloWidth: 420,
+            preferredPairedWidth: 210,
+            contentHeight: .fixed(widgetHeight)
+        )
+    }
+
     public func makeWidgetView(_ id: ShelfWidgetID, context: ShelfWidgetContext) -> AnyView {
-        if context.isCompact, !context.isPreview, host?.environment.isHarness == false,
-           screen != .timer, screen != .projects, screen != .sessions {
-            Task { @MainActor [weak self] in self?.show(.timer) }
+        if !context.isPreview, host?.environment.isHarness == false {
+            let grouped = context.isCompact
+            // A grouped row shows the paired timer, never a solo-only screen, so a flow or the
+            // analytics left open goes back to the timer. Not with no projects: there is no
+            // timer then, and the solo widget shows the start screen.
+            let leavesSoloScreen = grouped && !projects.isEmpty
+                && screen != .timer && screen != .projects && screen != .sessions
+            if grouped != mountedGrouped || leavesSoloScreen {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if grouped != self.mountedGrouped {
+                        self.mountedGrouped = grouped
+                        self.publishLayoutChange()
+                    }
+                    if leavesSoloScreen { self.show(.timer) }
+                }
+            }
         }
         return AnyView(FreelanceTrackerWidget(droplet: self, context: context))
     }
 
     public func makeWidgetSettingsPopover(_ id: ShelfWidgetID) -> AnyView? { nil }
+}
+
+extension FreelanceTrackerDroplet: ShelfWidgetDynamicLayoutProviding {
+    /// The traits as they are now, for a host that asks when it sizes the shelf (on open, not
+    /// only after an invalidation). Cheap: it is the descriptor's own numbers.
+    public func currentLayoutTraits(for id: ShelfWidgetID) -> ShelfWidgetLayoutTraits? {
+        id == Self.widgetID ? layoutTraits : nil
+    }
+
+    public var shelfWidgetLayoutInvalidationPublisher: AnyPublisher<ShelfWidgetID, Never> {
+        layoutSubject.eraseToAnyPublisher()
+    }
 }
 
 extension FreelanceTrackerDroplet: LiveActivityProviding {
