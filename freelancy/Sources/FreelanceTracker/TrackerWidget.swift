@@ -337,7 +337,7 @@ struct ListCard: View {
     }
 }
 
-/// One row of cards that scrolls sideways and takes the height the screen has left.
+/// Sideways-scrolling row of cards.
 struct CardRow<Item: Identifiable, Card: View>: View {
     let items: [Item]
     let card: (Item) -> Card
@@ -400,9 +400,7 @@ private struct ConfirmScreen: View {
         case .newSession(let id):
             if let running = droplet.runningSession {
                 let place = running.projectID == id ? "" : " on \(droplet.project(running.projectID)?.name ?? "another project")"
-                return droplet.startsSessionsRunning
-                    ? "\u{201C}\(running.name)\u{201D}\(place) is running and will be paused."
-                    : "\u{201C}\(running.name)\u{201D}\(place) keeps running."
+                return "\u{201C}\(running.name)\u{201D}\(place) is running and will be paused."
             }
             let count = droplet.sessions(of: id).count
             return "It will be \u{201C}Session \(count + 1)\u{201D} on \(droplet.project(id)?.name ?? "this project")."
@@ -880,7 +878,7 @@ private struct ProjectsScreen: View {
                         headline: droplet.moneyFirst ? money : time,
                         detailLabel: droplet.moneyFirst ? "Time spent" : "Earned",
                         detail: droplet.moneyFirst ? time : money,
-                        select: { droplet.requestOpen(project.id) },
+                        select: { droplet.requestOpenProject(project.id) },
                         analytics: { droplet.showAnalytics(for: project.id) },
                         edit: { droplet.edit(project.id) },
                         delete: { droplet.ask(.deleteProject(project.id)) }
@@ -961,8 +959,7 @@ private struct PairedTimerView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let project: Project
 
-    /// The paired clock shrinks as it grows longer (`12:45:49`, `120:45:21`, a money figure),
-    /// so it always fits between the two discs of a grouped card.
+    /// Smaller clock for longer times so it fits the compact card.
     static func clockSize(_ text: String) -> CGFloat {
         switch text.count {
         case ...5: 22
@@ -1189,7 +1186,7 @@ private struct PairedProjectsView: View {
                     ForEach(droplet.projects) { project in
                         let isCurrent = project.id == droplet.currentProject?.id
                         Button {
-                            droplet.requestOpen(project.id)
+                            droplet.requestOpenProject(project.id)
                         } label: {
                             HStack(spacing: DroppySpacing.xsm) {
                                 Circle()
@@ -1223,8 +1220,7 @@ private struct PairedProjectsView: View {
     }
 }
 
-/// The grouped row with no projects: the logo turning, and a button that shows Freelancy alone,
-/// where the start screen creates the first one.
+/// Empty state in a row: turning logo and a button to open Freelancy.
 private struct PairedEmptyView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
@@ -1232,7 +1228,7 @@ private struct PairedEmptyView: View {
         VStack(spacing: DroppySpacing.smd) {
             TurningLogo(size: 40)
             Button {
-                droplet.revealAlone()
+                droplet.showWidgetAlone()
             } label: {
                 Text("Open Freelancy")
                     .font(.system(size: 11, weight: .semibold))

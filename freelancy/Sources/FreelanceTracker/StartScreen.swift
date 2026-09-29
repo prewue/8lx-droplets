@@ -1,15 +1,11 @@
 import DroppyKit
 import SwiftUI
 
-/// What the shelf shows before the first project, in place of the menu: the Freelancy logo with
-/// its hand turning and earnings orbiting it, a greeting, two lines on what it does, and one
-/// button that starts the project flow.
+/// Welcome screen shown before the first project.
 struct StartScreen: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
-    /// The beam's clock, kept here so a hover starts and stops it in the same update that shows
-    /// and hides it: turns run before the last pause, and when it last started running (`nil`
-    /// unless the pointer is on the button).
+    /// Where the beam stopped and when it last started, so it resumes smoothly on hover.
     @State private var beamTurns: Double = 0
     @State private var beamRunningSince: Date?
 
@@ -59,15 +55,14 @@ struct StartScreen: View {
                 }
             }
             .padding(.top, DroppySpacing.xl)
-            // Room for the beam's outer glow, which the widget's rectangle would clip.
+            // Room for the glow under the button.
             .padding(.bottom, DroppySpacing.mdl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-/// Create project's glass: the clear Liquid Glass variant on macOS 26 and later, so the beam
-/// behind it reads through, and Droppy's own glass control before that.
+/// Clear glass on macOS 26 and later, Droppy's glass before that.
 private struct ClearGlassButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         ClearGlassLabel(configuration: configuration)
@@ -103,18 +98,14 @@ private struct ClearGlassLabel: View {
     }
 }
 
-/// Create project's beam: behind its glass, a capsule of the button's own size masks a bright,
-/// saturated blue and white beam that runs round its edge while the pointer is over it (the rest
-/// of the time the button is a plain one):
-/// a sharp line, a close glow and a wide one, added together, and outside the button a wide
-/// blurred copy of the beam that travels with it. It only animates while it shows.
+/// Glowing beam that runs around the button's edge on hover.
 private struct EdgeBeam: View {
-    /// Where the beam stopped last, in turns, and when it started running again (`nil` while
-    /// paused): it picks up where it stopped instead of jumping to where the clock would put it.
+    /// Where the beam stopped and when it started again (nil while paused).
     let turnsBeforePause: Double
     let runningSince: Date?
 
     static let secondsPerTurn: Double = 2.8
+    private static let glowRoom: CGFloat = 24
 
     private var isActive: Bool { runningSince != nil }
 
@@ -139,14 +130,30 @@ private struct EdgeBeam: View {
             )
             let shape = Capsule(style: .continuous)
             ZStack {
-                // The outer glow: the beam again, blurred wide and not clipped, so it spills
-                // past the button and travels with the beam.
+                // Outer glow that spills past the button.
                 shape.fill(beam)
                     .mask(shape.strokeBorder(lineWidth: 10))
-                    .blur(radius: 14)
+                    .blur(radius: 9)
                     .saturation(1.4)
+                    // Fade out below the button so the widget edge never cuts it.
+                    .padding(Self.glowRoom)
+                    .mask {
+                        GeometryReader { proxy in
+                            let height = proxy.size.height
+                            let buttonBottom = height - Self.glowRoom
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .black, location: (buttonBottom + 2) / height),
+                                    .init(color: .clear, location: (buttonBottom + 12) / height)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                    }
+                    .padding(-Self.glowRoom)
 
-                // Under the glass: a sharp line and two glows, clipped to the button.
+                // Line and inner glow, clipped to the button.
                 ZStack {
                     shape.fill(beam)
                         .mask(shape.strokeBorder(lineWidth: 18).blur(radius: 9))
@@ -171,9 +178,7 @@ private struct EdgeBeam: View {
     }
 }
 
-/// The logo with its long hand turning, the lit dots trailing it, and glass pills of earnings
-/// (and the maker's credit, tinted in the logo's blue) circling it on a tilted ring, passing
-/// behind and in front of it.
+/// Turning logo with earnings pills orbiting it.
 private struct StartEmblem: View {
     private static let logoSize: CGFloat = 54
     private static let badges: [(text: String, tint: Color?)] = [
@@ -210,8 +215,7 @@ private struct StartEmblem: View {
     }
 }
 
-/// The logo on its own with its long hand turning and the dots' light trailing it, for places
-/// too narrow for the orbit (the grouped row's empty state).
+/// Turning logo without the orbit, for narrow places.
 struct TurningLogo: View {
     let size: CGFloat
 
@@ -239,7 +243,7 @@ private struct EarningPill: View {
                 shape: AnyShape(Capsule(style: .continuous)),
                 fill: tint.map { .tinted($0) } ?? .veil
             )
-            // A dense fill of the tint under the glass, so a tinted pill reads at full saturation.
+            // Solid tint under the glass for a stronger colour.
             .background {
                 if let tint {
                     Capsule(style: .continuous).fill(tint.opacity(0.85))
@@ -248,16 +252,13 @@ private struct EarningPill: View {
     }
 }
 
-/// The Freelancy logo (the droplet icon's artwork, `FreelanceTracker.icon`), drawn so its long
-/// hand can turn: the sky gradient, the glow, the frosted dial with its rim, sixteen dots lit by
-/// a conic gradient that trails the long hand, and the two hands. All measures are the SVG's,
-/// on its 1224 canvas.
+/// The Freelancy logo, drawn from the icon's SVG measures so the hand can turn.
 struct FreelancyLogo: View {
     let size: CGFloat
-    /// The long hand, clockwise from twelve; the dots' light follows it.
+    /// Long hand angle; the dots' light follows it.
     var hand: Angle = .zero
 
-    /// The logo's middle blue, `#167FFF`.
+    /// Logo blue, #167FFF.
     static let blue = Color(red: 0.086, green: 0.498, blue: 1)
 
     private static let canvas: CGFloat = 1224
@@ -314,7 +315,7 @@ struct FreelancyLogo: View {
                 Circle()
                     .fill(Color.white)
                     .frame(width: 62 * unit, height: 62 * unit)
-                    .opacity(Self.light(at: angle - hand.degrees))
+                    .opacity(Self.dotBrightness(at: angle - hand.degrees))
                     .offset(
                         x: 300 * unit * CGFloat(sin(angle * .pi / 180)),
                         y: -300 * unit * CGFloat(cos(angle * .pi / 180))
@@ -340,9 +341,8 @@ struct FreelancyLogo: View {
             .rotationEffect(angle)
     }
 
-    /// The SVG's conic gradient: brightest just past the hand, dropping to 0.12, then brightening
-    /// all the way round back to it, so the lit dots trail the hand as it turns clockwise.
-    static func light(at degrees: Double) -> Double {
+    /// Dot brightness trailing the hand, as in the icon.
+    static func dotBrightness(at degrees: Double) -> Double {
         let a = (degrees.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
         if a <= 8.771 { return 0.9785 + 0.0215 * a / 8.771 }
         if a <= 10.353 { return 1 - 0.88 * (a - 8.771) / (10.353 - 8.771) }

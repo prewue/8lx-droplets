@@ -3,7 +3,7 @@
   "name": "Freelancy",
   "version": "1.1.0",
   "summary": "Bill by the hour and watch the money tick in the notch",
-  "description": "Freelancy is a minimal time and money meter for hourly work, and it lives on the shelf. A menu of four: Timer, Projects, Analytics, Settings.\n\nThe timer shows the current session of the current project: the clock, the money under it, pause and resume on the left, a fresh session on the right. The project's name above the clock is a badge; tap it to switch projects. The disc in the corner opens the project's sessions.\n\nProjects and sessions are cards in a row: tap one to pick it, hover to edit or delete it; a delete asks first, right on the shelf. A new project takes three short steps right on the shelf: a name, an icon and a colour, then an hourly rate and its currency. The same steps edit it later.\n\nAnalytics shows one project at a time: two weeks of money and time as bars, the totals, the number and average length of its sessions, and a button that writes that project's sessions to a CSV in Downloads.\n\nWhile a session runs, the clock in the project's colour and the amount earned so far sit beside the notch and tick every second, only the changed digit moving.",
+  "description": "Freelancy keeps track of the time and money for your hourly work, right on the Droppy shelf.\n\nCreate projects with an hourly rate and a currency, start and pause sessions, and see the time or the amount earned beside the notch. Analytics shows two weeks of time and money, and any project's sessions can be exported to CSV.\n\nDesigned by 8lx",
   "category": "Productivity",
   "kit": {
     "abi": 1,
@@ -24,7 +24,7 @@
   "creator": {
     "name": "8lx",
     "kind": "community",
-    "url": "https://github.com/prewue/freelancy",
+    "url": "https://8lx.vision",
     "avatar": "Creator.png",
     "gitlab": "prewue"
   },

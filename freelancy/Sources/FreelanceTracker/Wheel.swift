@@ -2,32 +2,23 @@ import AppKit
 import DroppyKit
 import SwiftUI
 
-// The wheel system: every picker on the shelf (icons, colours, currencies, and whatever comes
-// next) is an `InfiniteWheel` driven by a `WheelEngine` and drawn to a `WheelStyle`, with the
-// edges softened by `ProgressiveEdgeBlur`. A wheel brings only its items and its cell.
+// Wheel pickers for icons, colours and currencies. They share one engine, style and edge blur.
 
-/// How a wheel looks: one system for every picker on the shelf, so they scroll, scale, fade and
-/// blur alike. A new wheel picks or adds a preset here and brings its own cell; the curves stay
-/// shared. Every curve is smooth through the whole ring, like a drum turning, with no step where
-/// an item's speed, size or softness changes all at once (`t` is the signed distance in items
-/// from the centre, `distance` its size).
+/// Shared look for every wheel. A new wheel adds a preset; the curves stay shared.
 struct WheelStyle {
-    /// Centre-to-centre spacing at the middle of the row, in points.
+    /// Spacing between items at the centre.
     let pitch: CGFloat
-    /// The wheel's height: its tallest cell.
+    /// Height of the tallest cell.
     let height: CGFloat
-    /// The strongest blur, at the outer edges (`ProgressiveEdgeBlur`).
+    /// Strongest blur, at the edges.
     let edgeBlur: CGFloat
-    /// How far in from each edge the blur reaches.
+    /// How far the blur reaches in from each edge.
     let blurBand: CGFloat
-    /// The dark fade at each edge; short, since the blur does the softening.
+    /// Dark fade at each edge.
     var fadeWidth: CGFloat = 56
 
-    /// SF Symbol icons in a 48 by 44 cell.
     static let icons = WheelStyle(pitch: 56, height: 44, edgeBlur: 4, blurBand: 150)
-    /// 44pt colour discs.
     static let colors = WheelStyle(pitch: 56, height: 44, edgeBlur: 6, blurBand: 180)
-    /// 64 by 32 currency pills.
     static let currencies = WheelStyle(pitch: 76, height: 32, edgeBlur: 4, blurBand: 150)
 
     func scale(_ distance: CGFloat) -> CGFloat {
@@ -38,15 +29,13 @@ struct WheelStyle {
         Double(0.2 + 0.8 * Self.bell(distance, width: 1.3))
     }
 
-    /// The row gathers towards its ends on a `tanh`, full pitch at the centre, so an item slows
-    /// smoothly as it travels out instead of changing speed at a fixed step.
+    /// Items bunch up smoothly towards the edges.
     func offset(_ t: CGFloat) -> CGFloat {
         let reach = pitch * 4.3
         return reach * tanh(t * pitch / reach)
     }
 
-    /// 1 at the centre, falling as a Gaussian of the given width: flat at the top, so the item
-    /// in the middle eases in and out of its full size rather than popping.
+    /// Gaussian falloff: 1 at the centre.
     private static func bell(_ distance: CGFloat, width: CGFloat) -> CGFloat {
         exp(-(distance * distance) / (2 * width * width))
     }
@@ -58,8 +47,7 @@ final class WheelEngine: ObservableObject {
 
     var count = 1
     var pitch: CGFloat = 56
-    /// An endless ring when true; a row that stops at its first and last item when false (search
-    /// results, a ruler of numbers).
+    /// Endless ring when true, a row with ends when false.
     var wraps = true
     var onIndexChange: ((Int) -> Void)?
     var isHovering = false
@@ -78,12 +66,12 @@ final class WheelEngine: ObservableObject {
         ((value % count) + count) % count
     }
 
-    /// A bounded row's position kept to its ends; a ring's, untouched.
+    /// Keeps a row with ends inside them.
     private func clamped(_ value: CGFloat) -> CGFloat {
         wraps ? value : min(max(value, 0), CGFloat(max(count - 1, 0)))
     }
 
-    /// While dragging past a bounded row's end it gives with resistance, then settles back.
+    /// Lets a drag stretch a little past the ends.
     private func rubberBanded(_ value: CGFloat) -> CGFloat {
         let edge = clamped(value)
         return edge + (value - edge) * 0.3
@@ -153,8 +141,7 @@ final class WheelEngine: ObservableObject {
         settle(on: clamped(position.rounded() + CGFloat(delta)))
     }
 
-    /// A click on an item further along glides there, longer the further it is, instead of
-    /// springing across the gap in one leap.
+    /// Tapping a far item scrolls there instead of jumping.
     func go(to virtualIndex: Int) {
         snapTask?.cancel()
         let target = clamped(CGFloat(virtualIndex))
@@ -205,7 +192,7 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
     let items: [Item]
     @Binding var selection: Item
     let style: WheelStyle
-    /// False for a row that stops at its ends instead of an endless ring.
+    /// False for a row with ends.
     var wraps = true
     @ViewBuilder let cell: (Item, Bool) -> Cell
 
@@ -213,10 +200,8 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
 
     private static var reach: Int { 6 }
 
-    /// The items a copy of the edge blur draws: all of them for the sharp copy, and for a blurred
-    /// one only those that reach into the part of the band it covers, so the copies that exist
-    /// for the outer edge draw an item or two instead of the whole ring.
-    private func virtuals(for copy: EdgeBlurCopy, position: CGFloat) -> [Int] {
+    /// Items to draw. Blurred copies draw only the items near their edge.
+    private func visibleItems(for copy: EdgeBlurCopy, position: CGFloat) -> [Int] {
         let centre = Int(position.rounded())
         var all = Array((centre - Self.reach)...(centre + Self.reach))
         if !wraps { all = all.filter { $0 >= 0 && $0 < items.count } }
@@ -229,7 +214,7 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
         let position = engine.position
         ProgressiveEdgeBlur(maxRadius: style.edgeBlur, band: style.blurBand) { copy in
             ZStack {
-                ForEach(virtuals(for: copy, position: position), id: \.self) { virtual in
+                ForEach(visibleItems(for: copy, position: position), id: \.self) { virtual in
                     let t = CGFloat(virtual) - position
                     let distance = abs(t)
                     cell(items[wraps ? engine.wrap(virtual) : virtual], distance < 0.5)
@@ -275,8 +260,7 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
         .frame(height: style.height)
     }
 
-    /// Points the engine at the current items (they change as a search narrows them), on the
-    /// selection when it is among them and on the first item when it is not.
+    /// Syncs the engine with the current items and selection.
     private func configure() {
         guard !items.isEmpty else { return }
         engine.count = items.count
@@ -299,15 +283,10 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
     }
 }
 
-/// A blur that grows towards the left and right edges by screen position, the way a system
-/// progressive blur does, built from public SwiftUI: the content is drawn `steps + 1` times at
-/// rising radii, each copy masked to a triangular weight across the edge band, and the copies
-/// are added (`plusLighter`) so the weights sum to one everywhere and the blur changes
-/// continuously with x. Only the sharp copy takes clicks or reaches VoiceOver.
+/// Blur that grows towards the left and right edges.
 ///
-/// It stays cheap by drawing as little as it can: `content` learns which copy it draws, so it
-/// can leave out what that copy's mask throws away (`EdgeBlurCopy.reach`), and blurred copies carry
-/// `wheelBlurCopy` so a cell can drop its glass there, where nobody could tell.
+/// Draws the content a few times with rising blur and blends the copies with gradient masks.
+/// Only the sharp copy is interactive.
 struct ProgressiveEdgeBlur<Content: View>: View {
     let maxRadius: CGFloat
     let band: CGFloat
@@ -322,7 +301,7 @@ struct ProgressiveEdgeBlur<Content: View>: View {
             ZStack {
                 ForEach(0...Self.steps, id: \.self) { step in
                     content(copy(step))
-                        .environment(\.wheelBlurCopy, step != 0)
+                        .environment(\.isBlurredCopy, step != 0)
                         .blur(radius: radius(step))
                         .mask(weight(step))
                         .blendMode(step == 0 ? .normal : .plusLighter)
@@ -340,13 +319,12 @@ struct ProgressiveEdgeBlur<Content: View>: View {
         return EdgeBlurCopy(step: step, reach: band * (1 - inner) + radius(step) * 2)
     }
 
-    /// Radii rise slowly first, so the blur eases in from the inner edge of the band.
+    /// Blur radius for each copy.
     private func radius(_ step: Int) -> CGFloat {
         maxRadius * pow(CGFloat(step) / CGFloat(Self.steps), 1.6)
     }
 
-    /// This copy's share of each point: 1 where the band is at its level, falling linearly to 0
-    /// at the neighbouring levels. Level 0 (sharp) also owns the middle.
+    /// Shows this copy only in its part of the edge.
     private func weight(_ step: Int) -> some View {
         HStack(spacing: 0) {
             bandGradient(step, mirrored: false).frame(width: band)
@@ -355,7 +333,6 @@ struct ProgressiveEdgeBlur<Content: View>: View {
         }
     }
 
-    /// Across a band from its inner edge (level 0) to the outer edge (level `steps`).
     private func bandGradient(_ step: Int, mirrored: Bool) -> LinearGradient {
         let stops = (0...Self.steps).map { level in
             let inner = CGFloat(level) / CGFloat(Self.steps)
@@ -369,24 +346,20 @@ struct ProgressiveEdgeBlur<Content: View>: View {
     }
 }
 
-/// Which copy of `ProgressiveEdgeBlur` a view is drawing.
+/// Which blurred copy is being drawn.
 struct EdgeBlurCopy {
-    /// 0 is the sharp copy; the highest step the most blurred.
+    /// 0 is the sharp copy.
     let step: Int
-    /// How far in from each outer edge this copy's mask reaches, with room for its blur.
+    /// How far in from the edge this copy is visible.
     let reach: CGFloat
 }
 
 extension EnvironmentValues {
-    /// True inside a blurred copy of `ProgressiveEdgeBlur`: a cell draws its cheap face there.
-    @Entry var wheelBlurCopy = false
+    /// True inside a blurred copy, so a cell can draw a cheaper version.
+    @Entry var isBlurredCopy = false
 }
 
-/// A ruler of tick marks for a whole number, on the wheel system: a bounded `WheelEngine`, the
-/// same scrolling, dragging, clicking and arrows, the same edge fade and progressive blur. The
-/// active tick is always the one in the middle: tall and in `tint`; its two neighbours either
-/// side take the tint, fainter, at the grey ticks' height; the rest are grey. Height and tint
-/// follow each tick's distance from the middle on smooth curves, so they change as ticks pass it.
+/// Tick-mark ruler for picking a whole number, built on the wheel engine.
 struct RulerWheel: View {
     @ObservedObject var engine: WheelEngine
     let range: ClosedRange<Int>
@@ -454,7 +427,7 @@ struct RulerWheel: View {
         .frame(height: Self.height)
     }
 
-    /// The ticks on screen, and for a blurred copy only those in its part of the edge band.
+    /// Ticks to draw.
     private func indices(for copy: EdgeBlurCopy, position: CGFloat) -> [Int] {
         let half = Int((max(width, 400) / 2 / Self.spacing).rounded(.up)) + 1
         let centre = Int(position.rounded())
@@ -465,9 +438,9 @@ struct RulerWheel: View {
     }
 
     private func tick(_ distance: CGFloat) -> some View {
-        // Only the active tick stands taller; its tinted neighbours keep the grey ticks' height.
+        // Only the centre tick is taller.
         let lift = exp(-(distance * distance) / (2 * 0.42 * 0.42))
-        // Full at the middle, about 0.45 and 0.2 for the next two, gone by the third.
+        // The tint fades out over two ticks either side.
         let fade = distance >= 3 ? 0 : max(0, min(1, (3 - distance) / 0.8))
         let tinted = exp(-0.8 * distance) * fade
         return ZStack {

@@ -35,7 +35,7 @@ struct FreelanceTrackerSettings: View {
                 DropletSettingsCard {
                     DropletToggleRow(
                         title: "Start new sessions running",
-                        subtitle: "Off, a new session waits on the timer until you press Start, and whatever was running keeps running.",
+                        subtitle: "Off, a new session waits on the timer until you press Start. The session before it stops either way.",
                         isOn: droplet.startsSessionsRunningBinding
                     )
                     DropletToggleRow(
@@ -120,8 +120,7 @@ struct FreelanceTrackerSettings: View {
 }
 
 private extension View {
-    /// On macOS 15 and later the pane is Droppy's grouped Form and the Form pays a row's
-    /// padding; before that the rows draw their own, the way the kit's legacy rows do.
+    /// Row padding for macOS 14, where the pane is not a native form.
     @ViewBuilder
     func settingsRowPadding() -> some View {
         if #available(macOS 15.0, *) {
@@ -318,12 +317,12 @@ private struct ProjectLookMenu: View {
 }
 
 
-/// The expanded project's sessions, one Form row each, indented under the project's name.
+/// Sessions of the expanded project.
 private struct SessionRows: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let project: Project
 
-    /// The look square and the gap after it, so a session lines up with its project's name.
+    /// Lines sessions up with the project name.
     static let indent: CGFloat = 28 + DroppySpacing.sm
 
     var body: some View {
@@ -425,7 +424,7 @@ private struct SessionSettingsRow: View {
     }
 }
 
-/// The currency as the Form's own pop-up.
+/// Currency pop-up.
 private struct CurrencyPicker: View {
     let selected: TrackerCurrency
     let showsName: Bool
@@ -445,8 +444,7 @@ private struct CurrencyPicker: View {
     }
 }
 
-/// A native text field for a number: shows the stored value, commits on Return or when it
-/// loses focus, and puts the stored value back on Escape or when the typing does not parse.
+/// Number field: Return or leaving it saves, Escape reverts.
 private struct ValueField: View {
     let display: String
     let width: CGFloat

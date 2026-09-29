@@ -19,7 +19,7 @@ struct ProjectFlowScreen: View {
     }
 }
 
-/// A screen that needs a project when there is none: the start screen.
+/// Shown where a project is needed but there is none.
 struct NoProjectScreen: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
@@ -61,7 +61,7 @@ struct SessionRenameScreen: View {
         }
     }
 
-    /// A rename shows the current name; a new session the name it gets when nothing is typed.
+    /// Current name when renaming, default name for a new session.
     private var placeholder: String {
         guard let rename = droplet.sessionRename else { return "Session name" }
         if let id = rename.sessionID, let session = droplet.session(id) { return session.name }
@@ -78,7 +78,7 @@ private struct FlowStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
 
-    /// The currency search, `nil` while it is closed.
+    /// Currency search text, nil while closed.
     @State private var currencyQuery: String?
 
     private var color: ProjectColor { droplet.draft?.color ?? draft.color }
@@ -170,7 +170,7 @@ private struct FlowStep: View {
 private struct FlowNav<Trailing: View>: View {
     let title: String
     let back: () -> Void
-    /// The title steps aside while a trailing control spreads across the row (the search).
+    /// Hides the title while the search is open.
     var hidesTitle = false
     @ViewBuilder let trailing: () -> Trailing
 
@@ -193,21 +193,18 @@ private struct FlowNav<Trailing: View>: View {
     }
 }
 
-/// The currency step's search: a glass disc the size of the back button that opens across the
-/// nav row into a field. Opening runs in beats: the title fades out, then the disc springs open
-/// with the magnifier riding to its leading edge, then the placeholder and the close button come
-/// in out of a blur. Closing runs them backwards and the magnifier rides back to the middle.
-/// `query` is `nil` while it is a disc. Return confirms the currency in the middle; Escape closes.
+/// Search button that opens into a field across the nav row.
+/// Return confirms the currency, Escape closes.
 private struct NavSearch: View {
     @Binding var query: String?
     let submit: () -> Void
 
     @State private var isExpanded = false
     @State private var showsContent = false
-    /// Bumped on every open and close, so a beat left over from the other one does nothing.
+    /// Ignores leftover animation steps from a previous open or close.
     @State private var generation = 0
 
-    /// A spring with a small, soft overshoot for the disc opening and closing.
+    /// Soft spring for opening and closing.
     private static let spring = Animation.spring(response: 0.46, dampingFraction: 0.8)
     private static let iconWidth: CGFloat = 14
     private static let blurIn = AnyTransition.modifier(
@@ -217,8 +214,7 @@ private struct NavSearch: View {
 
     var body: some View {
         let shape = Capsule(style: .continuous)
-        // The magnifier stays on the leading edge: centred in the disc by the disc's own padding,
-        // it rides with the spring to the field's leading edge and back.
+        // The magnifier sits centred in the disc and slides to the left edge as it opens.
         let collapsedPadding = (FreelanceTrackerDroplet.navHeight - Self.iconWidth) / 2
         HStack(spacing: DroppySpacing.xsm) {
             Image(systemName: "magnifyingglass")
@@ -236,7 +232,7 @@ private struct NavSearch: View {
                 )
                 .frame(height: 20)
                 .overlay(alignment: .leading) {
-                    // The placeholder is SwiftUI so it can come in out of a blur; AppKit's cannot.
+                    // SwiftUI placeholder so it can fade in from a blur.
                     if (query ?? "").isEmpty {
                         Text("Search currencies")
                             .font(.system(size: 13, weight: .medium))
@@ -299,7 +295,7 @@ private struct NavSearch: View {
     }
 }
 
-/// Blur and opacity together, for things that come in out of a blur.
+/// Fades in from a blur.
 private struct BlurFade: ViewModifier {
     let radius: CGFloat
     let opacity: Double
@@ -436,9 +432,7 @@ private struct LookStep: View {
     }
 }
 
-/// The colour wheel, opened from the icon step's Color pill: the icon wheel's row, centred, the
-/// colours softening towards the edges. `pendingColor` holds the choice; Confirm applies it,
-/// Back drops it, as the currency step does.
+/// Colour picker. Confirm applies the choice, Back drops it.
 private struct ColorStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
@@ -472,7 +466,6 @@ private struct ColorStep: View {
     }
 }
 
-/// One colour of the wheel: a plain disc of it.
 private struct ColorOrb: View {
     let color: Color
 
@@ -483,8 +476,7 @@ private struct ColorOrb: View {
     }
 }
 
-/// The rate: the amount in the project's colour (click it to type an exact one) over a ruler
-/// that picks whole amounts, the active tick always in the middle.
+/// Hourly rate: the amount (click to type it) over a ruler.
 private struct RateStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
@@ -547,7 +539,7 @@ private struct RateStep: View {
             )
             .accessibilityLabel("Hourly rate")
         }
-        // Closer to the title; an offset, so the step's layout and the button stay where they are.
+        // Nudged up without changing the layout.
         .offset(y: -6)
         .background {
             if !isTyping {
@@ -562,7 +554,7 @@ private struct RateStep: View {
             }
         }
         .onChange(of: rate) { _, typedRate in
-            // A typed amount moves the ruler to it; the ruler's own moves are already there.
+            // Move the ruler to a typed amount.
             let target = min(max(Int(typedRate.rounded()), Self.range.lowerBound), Self.range.upperBound) - Self.range.lowerBound
             if ruler.index != target { ruler.go(to: target) }
         }
@@ -585,9 +577,7 @@ private struct RateStep: View {
     }
 }
 
-/// The currency wheel. The glass is one lens held in the middle that the codes pass under, so
-/// the selection moves with the scroll instead of switching at the halfway point. A search
-/// narrows the codes to those matching its text, as a row that stops at its ends.
+/// Currency picker. Codes scroll under a fixed glass lens; search narrows the list.
 private struct CurrencyStep: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let draft: ProjectDraft
@@ -650,7 +640,7 @@ private struct CurrencyStep: View {
     }
 }
 
-/// A currency code on the wheel: text only; the glass is the lens in the middle.
+/// Currency code on the wheel.
 private struct CurrencyPill: View {
     let code: String
     let isCentred: Bool
@@ -679,8 +669,7 @@ enum FlowFocus {
         }
     }
 
-    /// Asks the host to make the shelf panel key; set while the droplet is active.
-    /// The host owns key status (DroppyKit 1.10.0), so the flow never calls `makeKey()`.
+    /// Asks the host for keyboard focus. Set while the droplet is active.
     static var requestKey: (@MainActor () -> Bool)?
 
     static func ensureKey(_ window: NSWindow) -> Bool {
@@ -712,13 +701,10 @@ struct FlowKeyReceiver: NSViewRepresentable {
     }
 }
 
-/// Turns the arrows, Return and Escape into callbacks for a step with no text field.
+/// Handles arrows, Return and Escape on steps without a text field.
 ///
-/// It listens through a local key monitor rather than as first responder: a click on the step
-/// (a colour, an icon, the wheel) hands first responder to the SwiftUI hosting view, which
-/// drops Return, and a view that had to win first responder back lost Return for good once
-/// its retries ran out. Only the newest receiver answers, because a step fading out and the
-/// one fading in are both on screen for a moment, and a field editor keeps its own keys.
+/// Uses a key monitor instead of first responder, since clicks on the step steal first
+/// responder. Only the newest receiver responds while two steps overlap.
 final class FlowKeyView: NSView {
     var handler: ((FlowKey, Bool) -> Void)?
     private var keyObserver: NSObjectProtocol?

@@ -28,13 +28,12 @@ public enum ProjectStep: Hashable, Sendable {
     case color
 }
 
-/// The session name page: renaming a session, or naming one about to start on `projectID`
-/// ("Name new sessions"), with `sessionID` `nil` then.
+/// State of the session name page: renaming a session, or naming a new one (no `sessionID`).
 public struct SessionRename: Equatable, Sendable {
     public let sessionID: UUID?
     public let projectID: UUID
     public var name: String
-    /// Where Back leads, and Save for a rename; a new session opens the timer.
+    /// Screen to go back to.
     public let returnScreen: TrackerScreen
 
     public var isNewSession: Bool { sessionID == nil }
@@ -100,12 +99,10 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     private var ticker: Task<Void, Never>?
     private let activitySubject = CurrentValueSubject<LiveActivityState?, Never>(nil)
-    /// Tells a host that reads `ShelfWidgetDynamicLayoutProviding` to re-read the traits.
+    /// Tells the host to re-read the widget size.
     private let layoutSubject = PassthroughSubject<ShelfWidgetID, Never>()
-    /// Whether Droppy last mounted the widget in a grouped row. The descriptor has one height
-    /// for both compositions and `currentLayoutTraits` gets no context, so the height follows
-    /// the mount the host last asked for.
-    private var mountedGrouped = false
+    /// Whether the widget sits in a row with other widgets.
+    private var isInGroupedRow = false
 
     private enum Keys {
         static let projects = "projects"
@@ -149,12 +146,12 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         ticker?.cancel()
         ticker = nil
         activitySubject.send(nil)
-        // Re-enabled, the droplet starts at the menu, not inside a flow or a question it left.
+        // Start fresh at the menu next time.
         draft = nil
         sessionRename = nil
         pendingConfirmation = nil
         freshSessionID = nil
-        liveSessionID = nil
+        notchSessionID = nil
         screen = .menu
         host = nil
     }
@@ -176,13 +173,11 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         sessions.first { $0.isRunning }
     }
 
-    /// The session the notch row shows: the running one, or the one last running while it is
-    /// paused, so the row's play button can resume it. A paused row stays until another session
-    /// starts, the session goes, or Droppy relaunches: the docs say never to unpublish for a pause.
-    private var liveSessionID: UUID?
+    /// Session shown in the notch: the running one, or the last one after it is paused.
+    private var notchSessionID: UUID?
 
-    var liveSession: WorkSession? {
-        runningSession ?? liveSessionID.flatMap { session($0) }
+    var notchSession: WorkSession? {
+        runningSession ?? notchSessionID.flatMap { session($0) }
     }
 
     public func project(_ id: UUID) -> Project? {
@@ -218,7 +213,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         host?.preferences.value(forKey: Keys.showsHUD, default: true) ?? true
     }
 
-    /// The notch's trailing wing shows the amount earned instead of the time. Off by default.
+    /// Show the amount instead of the time in the notch.
     public var notchShowsMoney: Bool {
         host?.preferences.value(forKey: Keys.notchShowsMoney, default: false) ?? false
     }
@@ -272,7 +267,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         host?.preferences.value(forKey: Keys.asksBeforeNewSession, default: false) ?? false
     }
 
-    /// "Name new sessions": the plus asks for a name before the session starts. On by default.
+    /// Ask for a name when starting a new session.
     public var namesNewSessions: Bool {
         host?.preferences.value(forKey: Keys.namesNewSessions, default: true) ?? true
     }
@@ -357,7 +352,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         } else {
             let typed = rename.name.trimmingCharacters(in: .whitespacesAndNewlines)
             if let session = newSession(on: rename.projectID, name: typed.isEmpty ? nil : typed) {
-                flashFreshSession(session.id)
+                showSessionStarted(session.id)
             }
         }
     }
@@ -591,13 +586,12 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         }
     }
 
-    /// A new session, named first when "Name new sessions" is on. A grouped row has no room for
-    /// the name page, so there it starts at once under its default name.
+    /// Starts a new session, asking for its name first when that is on.
     private func startNewSession(on projectID: UUID) {
-        if namesNewSessions, !mountedGrouped {
+        if namesNewSessions, !isInGroupedRow {
             startNamingNewSession(on: projectID)
         } else if let session = newSession(on: projectID) {
-            flashFreshSession(session.id)
+            showSessionStarted(session.id)
         }
     }
 
@@ -607,12 +601,12 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         show(.renameSession)
     }
 
-    /// The name a new session on the project gets when none is typed.
+    /// Name used when none is typed, like "Session 4".
     public func defaultSessionName(on projectID: UUID) -> String {
         "Session \(sessions(of: projectID).count + 1)"
     }
 
-    public func requestOpen(_ projectID: UUID) {
+    public func requestOpenProject(_ projectID: UUID) {
         if asksBeforeSwitching,
            let running = runningSession,
            running.projectID != projectID,
@@ -623,7 +617,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         }
     }
 
-    private func flashFreshSession(_ id: UUID) {
+    private func showSessionStarted(_ id: UUID) {
         freshTask?.cancel()
         freshSessionID = id
         freshTask = Task { @MainActor [weak self] in
@@ -655,14 +649,14 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     }
 
     @discardableResult
-    /// Starts a new session on the project. `running` overrides "Start new sessions running":
-    /// Start on a project with no session means start, so it passes `true`.
+    /// Creates a session. `running` overrides "Start new sessions running".
     public func newSession(on projectID: UUID, running: Bool? = nil, name: String? = nil) -> WorkSession? {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return nil }
         let moment = Date()
         let heightBefore = widgetHeight
         let runs = running ?? startsSessionsRunning
-        if runs { pauseEverything(at: moment) }
+        // Only one session runs at a time.
+        pauseEverything(at: moment)
         let count = sessions(of: projectID).count
         let session = WorkSession(projectID: projectID, name: name ?? "Session \(count + 1)", createdAt: moment, activeSince: runs ? moment : nil)
         sessions.insert(session, at: 0)
@@ -685,20 +679,11 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         guard let project = project(projectID) else { return }
         guard let current = currentSession(of: projectID),
               let index = sessions.firstIndex(where: { $0.id == current.id }) else {
-            // Start with nothing to resume: the session it makes runs, whatever the preference.
+            // Start with no session creates one and runs it.
             newSession(on: projectID, running: true)
             return
         }
         toggle(sessionAt: index, of: project, announces: true)
-    }
-
-    /// Pause or resume from the notch row's button: the session the row shows, with no strip,
-    /// since the row itself shows the change.
-    public func toggleLiveSession() {
-        guard let live = liveSession,
-              let index = sessions.firstIndex(where: { $0.id == live.id }),
-              let project = project(live.projectID) else { return }
-        toggle(sessionAt: index, of: project, announces: false)
     }
 
     private func toggle(sessionAt index: Int, of project: Project, announces: Bool) {
@@ -826,8 +811,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         publishLayoutChange()
     }
 
-    /// Asks the host to re-read the widget's traits: through the dynamic-layout publisher on
-    /// hosts that read it (DroppyKit 1.20.0 and later) and `invalidateLayout` on the rest.
+    /// Tells the host the widget size changed.
     private func publishLayoutChange() {
         layoutSubject.send(Self.widgetID)
         host?.shelf.invalidateLayout(for: Self.widgetID)
@@ -907,25 +891,21 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 }
 
 extension FreelanceTrackerDroplet: ShelfWidgetProviding {
-    /// The height `context.contentInsets` takes: 8 top and bottom under the host's
-    /// 18pt card corner, none on a solo island card. The height budgets the larger.
+    /// Space the host adds above and below the widget.
     static let hostInsets: CGFloat = DroppySpacing.sm * 2
     static let navHeight: CGFloat = 28
 
     static let cardWidth: CGFloat = 176
-    /// The card row's share of the Projects and Sessions screens. Both screens come to the
-    /// timer's height, so moving between them never resizes the shelf; the cards fill it.
+    /// Card row height, so Projects and Sessions match the timer's height.
     static let cardRowHeight: CGFloat = 100
     static let cardSpacing: CGFloat = 12
 
     static let timerRowHeight: CGFloat = 68
 
-    /// The widget in a grouped row: the paired timer's badge, clock and bottom row (94) and the
-    /// host's insets. The paired lists, the empty state and a compact question fit in it too.
+    /// Widget height in a row with other widgets.
     static let groupedHeight: CGFloat = hostInsets + 94
 
-    /// The start screen's content: the logo and its orbit, the greeting, two lines, the button and
-    /// room under it for the beam's glow.
+    /// Start screen content height.
     static let startScreenHeight: CGFloat = 209
 
     static let flowBodyHeight: CGFloat = 80
@@ -937,18 +917,17 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let pageDotsGap: CGFloat = 16
 
     var widgetHeight: CGFloat {
-        // A grouped row shares one height with its neighbours: the compact compositions all fit
-        // in `groupedHeight`, whatever screen the solo widget was on.
-        if mountedGrouped { return Self.groupedHeight }
+        // In a row with other widgets the height is always the compact one.
+        if isInGroupedRow { return Self.groupedHeight }
         let frame = Self.hostInsets
         let gap = DroppySpacing.sm
         switch screen {
         case .menu:
-            // With no projects the menu is the start screen instead (`StartScreen`).
+            // No projects: the menu is the start screen.
             return frame + (projects.isEmpty ? Self.startScreenHeight : 84)
 
         case .timer:
-            // A timer with no project to show is the start screen (`NoProjectScreen`).
+            // No project: the timer shows the start screen.
             if currentProject == nil { return frame + Self.startScreenHeight }
             return frame + Self.navHeight + DroppySpacing.md + Self.timerRowHeight + DroppySpacing.md + 16
         case .projects, .sessions:
@@ -984,16 +963,14 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     public func makeWidgetView(_ id: ShelfWidgetID, context: ShelfWidgetContext) -> AnyView {
         if !context.isPreview, host?.environment.isHarness == false {
             let grouped = context.isCompact
-            // A grouped row shows the paired timer, never a solo-only screen, so a flow or the
-            // analytics left open goes back to the timer. Not with no projects: there is no
-            // timer then, and the solo widget shows the start screen.
+            // In a row, solo-only screens go back to the timer (unless there are no projects).
             let leavesSoloScreen = grouped && !projects.isEmpty
                 && screen != .timer && screen != .projects && screen != .sessions
-            if grouped != mountedGrouped || leavesSoloScreen {
+            if grouped != isInGroupedRow || leavesSoloScreen {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    if grouped != self.mountedGrouped {
-                        self.mountedGrouped = grouped
+                    if grouped != self.isInGroupedRow {
+                        self.isInGroupedRow = grouped
                         self.publishLayoutChange()
                     }
                     if leavesSoloScreen { self.show(.timer) }
@@ -1005,15 +982,14 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
 
     public func makeWidgetSettingsPopover(_ id: ShelfWidgetID) -> AnyView? { nil }
 
-    /// Shows the widget alone on the shelf, from the grouped row's empty state.
-    public func revealAlone() {
+    /// Shows the widget on its own.
+    public func showWidgetAlone() {
         _ = host?.shelf.open(revealing: Self.widgetID)
     }
 }
 
 extension FreelanceTrackerDroplet: ShelfWidgetDynamicLayoutProviding {
-    /// The traits as they are now, for a host that asks when it sizes the shelf (on open, not
-    /// only after an invalidation). Cheap: it is the descriptor's own numbers.
+    /// Current size, read by the host when the shelf opens.
     public func currentLayoutTraits(for id: ShelfWidgetID) -> ShelfWidgetLayoutTraits? {
         id == Self.widgetID ? layoutTraits : nil
     }
@@ -1033,7 +1009,7 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
     }
 
     public func makeCompactLeading() -> AnyView {
-        AnyView(CompactControlView(droplet: self))
+        AnyView(CompactStatusView(droplet: self))
     }
 
     public func makeCompactTrailing() -> AnyView {
@@ -1044,29 +1020,29 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
         AnyView(EmptyView())
     }
 
-    var compactClock: String {
-        guard let live = liveSession else { return "" }
+    var notchClock: String {
+        guard let live = notchSession else { return "" }
         return TrackerClock.compact(live.duration(at: now))
     }
 
-    var compactProjectColor: Color {
-        guard let live = liveSession, let project = project(live.projectID) else {
+    var notchColor: Color {
+        guard let live = notchSession, let project = project(live.projectID) else {
             return AdaptiveColors.notchSurfaceSecondaryText
         }
         return project.color.color
     }
 
-    var compactEarnings: String {
-        guard let live = liveSession, let project = project(live.projectID) else { return "" }
+    var notchEarnings: String {
+        guard let live = notchSession, let project = project(live.projectID) else { return "" }
         return project.formattedEarnings(for: live.duration(at: now), compact: true)
     }
 
-    var compactIsRunning: Bool { liveSession?.isRunning ?? false }
+    var notchIsRunning: Bool { notchSession?.isRunning ?? false }
 
     private func publishActivity() {
-        if let running = runningSession { liveSessionID = running.id }
-        guard let live = liveSession, let project = project(live.projectID) else {
-            liveSessionID = nil
+        if let running = runningSession { notchSessionID = running.id }
+        guard let live = notchSession, let project = project(live.projectID) else {
+            notchSessionID = nil
             activitySubject.send(nil)
             return
         }
@@ -1076,8 +1052,8 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
             LiveActivityState(
                 priority: 400,
                 accessibilityTitle: "\(project.name), \(live.isRunning ? "" : "paused, ")\(elapsed), \(earned)",
-                // The row has a pause and play button; kept true for as long as it is published.
-                isInteractive: true,
+                // Not interactive: the host opens the shelf on click, and interactive rows are wider.
+                isInteractive: false,
                 joinsPersistentActivitySet: pinsLiveActivity,
                 compactPresentation: nil,
                 expandedWidgetID: Self.widgetID.rawValue
@@ -1086,43 +1062,36 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
     }
 }
 
-/// The notch row's leading wing: pause and play for the session it shows, the glyph swapping on
-/// Droppy's own compact transition.
-private struct CompactControlView: View {
+/// Pause or play icon for the session in the notch.
+private struct CompactStatusView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
     var body: some View {
-        let running = droplet.compactIsRunning
-        Button {
-            droplet.toggleLiveSession()
-        } label: {
-            Image(systemName: running ? "pause.fill" : "play.fill")
-                .foregroundStyle(.white)
-                .id(running)
-                .transition(DroppyTransition.compactContent)
-        }
-        .buttonStyle(DroppyLiveActivityControlStyle(prominence: .quiet))
-        .animation(DroppyAnimation.state, value: running)
-        .padding(.leading, DroppySpacing.xs)
-        .help(running ? "Pause" : "Resume")
-        .accessibilityLabel(running ? "Pause" : "Resume")
+        let running = droplet.notchIsRunning
+        Image(systemName: running ? "pause.fill" : "play.fill")
+            .font(.system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .bold))
+            .foregroundStyle(.white)
+            .id(running)
+            .transition(DroppyTransition.compactContent)
+            .animation(DroppyAnimation.state, value: running)
+            .padding(.leading, DroppySpacing.sm)
+            .accessibilityLabel(running ? "Running" : "Paused")
     }
 }
 
-/// The notch row's trailing wing: the time in the project's colour, or the amount earned when
-/// Settings asks for it; dimmed while the session is paused.
+/// Time or amount in the notch, dimmed while paused.
 private struct CompactFigureView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
     var body: some View {
         let money = droplet.notchShowsMoney
         RollingDigits(
-            money ? droplet.compactEarnings : droplet.compactClock,
-            font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: money ? .semibold : .medium, design: .rounded),
-            color: money ? AdaptiveColors.notchSurfacePrimaryText : droplet.compactProjectColor
+            money ? droplet.notchEarnings : droplet.notchClock,
+            font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .medium, design: .rounded),
+            color: droplet.notchColor
         )
-        .opacity(droplet.compactIsRunning ? 1 : 0.6)
-        .animation(DroppyAnimation.state, value: droplet.compactIsRunning)
+        .opacity(droplet.notchIsRunning ? 1 : 0.6)
+        .animation(DroppyAnimation.state, value: droplet.notchIsRunning)
     }
 }
 
