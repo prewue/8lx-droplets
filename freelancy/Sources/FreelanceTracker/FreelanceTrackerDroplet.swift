@@ -114,6 +114,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         static let defaultRate = "defaultRate"
         static let defaultCurrency = "defaultCurrency"
         static let pinsLiveActivity = "pinsLiveActivity"
+        static let notchShowsMoney = "notchShowsMoney"
         static let showsHUD = "showsHUD"
         static let moneyFirst = "moneyFirst"
         static let startsSessionsRunning = "startsSessionsRunning"
@@ -153,6 +154,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         sessionRename = nil
         pendingConfirmation = nil
         freshSessionID = nil
+        liveSessionID = nil
         screen = .menu
         host = nil
     }
@@ -172,6 +174,15 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     public var runningSession: WorkSession? {
         sessions.first { $0.isRunning }
+    }
+
+    /// The session the notch row shows: the running one, or the one last running while it is
+    /// paused, so the row's play button can resume it. A paused row stays until another session
+    /// starts, the session goes, or Droppy relaunches: the docs say never to unpublish for a pause.
+    private var liveSessionID: UUID?
+
+    var liveSession: WorkSession? {
+        runningSession ?? liveSessionID.flatMap { session($0) }
     }
 
     public func project(_ id: UUID) -> Project? {
@@ -205,6 +216,18 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
 
     public var showsHUD: Bool {
         host?.preferences.value(forKey: Keys.showsHUD, default: true) ?? true
+    }
+
+    /// The notch's trailing wing shows the amount earned instead of the time. Off by default.
+    public var notchShowsMoney: Bool {
+        host?.preferences.value(forKey: Keys.notchShowsMoney, default: false) ?? false
+    }
+
+    public var notchShowsMoneyBinding: Binding<Bool> {
+        Binding(
+            get: { self.notchShowsMoney },
+            set: { self.host?.preferences.setValue($0, forKey: Keys.notchShowsMoney); self.objectWillChange.send() }
+        )
     }
 
     public var defaultRateBinding: Binding<Double> {
@@ -666,16 +689,34 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
             newSession(on: projectID, running: true)
             return
         }
+        toggle(sessionAt: index, of: project, announces: true)
+    }
+
+    /// Pause or resume from the notch row's button: the session the row shows, with no strip,
+    /// since the row itself shows the change.
+    public func toggleLiveSession() {
+        guard let live = liveSession,
+              let index = sessions.firstIndex(where: { $0.id == live.id }),
+              let project = project(live.projectID) else { return }
+        toggle(sessionAt: index, of: project, announces: false)
+    }
+
+    private func toggle(sessionAt index: Int, of project: Project, announces: Bool) {
+        let current = sessions[index]
         let moment = Date()
         if current.isRunning {
             sessions[index].accumulated += max(0, moment.timeIntervalSince(current.activeSince ?? moment))
             sessions[index].activeSince = nil
-            let earned = project.formattedEarnings(for: sessions[index].duration(at: moment), compact: true)
-            presentHUD(glyph: "pause.fill", trailing: earned, label: "Paused \(project.name), \(earned)")
+            if announces {
+                let earned = project.formattedEarnings(for: sessions[index].duration(at: moment), compact: true)
+                presentHUD(glyph: "pause.fill", trailing: earned, label: "Paused \(project.name), \(earned)")
+            }
         } else {
             pauseEverything(at: moment)
             sessions[index].activeSince = moment
-            presentHUD(glyph: "play.fill", trailing: project.formattedRate, label: "Resumed \(project.name)")
+            if announces {
+                presentHUD(glyph: "play.fill", trailing: project.formattedRate, label: "Resumed \(project.name)")
+            }
         }
         now = moment
         save()
@@ -992,11 +1033,11 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
     }
 
     public func makeCompactLeading() -> AnyView {
-        AnyView(CompactClockView(droplet: self))
+        AnyView(CompactControlView(droplet: self))
     }
 
     public func makeCompactTrailing() -> AnyView {
-        AnyView(CompactMoneyView(droplet: self))
+        AnyView(CompactFigureView(droplet: self))
     }
 
     public func makeExpanded(context: LiveActivityContext) -> AnyView {
@@ -1004,34 +1045,39 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
     }
 
     var compactClock: String {
-        guard let running = runningSession else { return "" }
-        return TrackerClock.compact(running.duration(at: now))
+        guard let live = liveSession else { return "" }
+        return TrackerClock.compact(live.duration(at: now))
     }
 
     var compactProjectColor: Color {
-        guard let running = runningSession, let project = project(running.projectID) else {
+        guard let live = liveSession, let project = project(live.projectID) else {
             return AdaptiveColors.notchSurfaceSecondaryText
         }
         return project.color.color
     }
 
     var compactEarnings: String {
-        guard let running = runningSession, let project = project(running.projectID) else { return "" }
-        return project.formattedEarnings(for: running.duration(at: now), compact: true)
+        guard let live = liveSession, let project = project(live.projectID) else { return "" }
+        return project.formattedEarnings(for: live.duration(at: now), compact: true)
     }
 
+    var compactIsRunning: Bool { liveSession?.isRunning ?? false }
+
     private func publishActivity() {
-        guard let running = runningSession, let project = project(running.projectID) else {
+        if let running = runningSession { liveSessionID = running.id }
+        guard let live = liveSession, let project = project(live.projectID) else {
+            liveSessionID = nil
             activitySubject.send(nil)
             return
         }
-        let elapsed = TrackerClock.full(running.duration(at: now))
-        let earned = project.formattedEarnings(for: running.duration(at: now))
+        let elapsed = TrackerClock.full(live.duration(at: now))
+        let earned = project.formattedEarnings(for: live.duration(at: now))
         activitySubject.send(
             LiveActivityState(
                 priority: 400,
-                accessibilityTitle: "\(project.name), \(elapsed), \(earned)",
-                isInteractive: false,
+                accessibilityTitle: "\(project.name), \(live.isRunning ? "" : "paused, ")\(elapsed), \(earned)",
+                // The row has a pause and play button; kept true for as long as it is published.
+                isInteractive: true,
                 joinsPersistentActivitySet: pinsLiveActivity,
                 compactPresentation: nil,
                 expandedWidgetID: Self.widgetID.rawValue
@@ -1040,27 +1086,43 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
     }
 }
 
-private struct CompactClockView: View {
+/// The notch row's leading wing: pause and play for the session it shows, the glyph swapping on
+/// Droppy's own compact transition.
+private struct CompactControlView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
     var body: some View {
-        RollingDigits(
-            droplet.compactClock,
-            font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .medium, design: .rounded),
-            color: droplet.compactProjectColor
-        )
+        let running = droplet.compactIsRunning
+        Button {
+            droplet.toggleLiveSession()
+        } label: {
+            Image(systemName: running ? "pause.fill" : "play.fill")
+                .foregroundStyle(.white)
+                .id(running)
+                .transition(DroppyTransition.compactContent)
+        }
+        .buttonStyle(DroppyLiveActivityControlStyle(prominence: .quiet))
+        .animation(DroppyAnimation.state, value: running)
+        .padding(.leading, DroppySpacing.xs)
+        .help(running ? "Pause" : "Resume")
+        .accessibilityLabel(running ? "Pause" : "Resume")
     }
 }
 
-private struct CompactMoneyView: View {
+/// The notch row's trailing wing: the time in the project's colour, or the amount earned when
+/// Settings asks for it; dimmed while the session is paused.
+private struct CompactFigureView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
     var body: some View {
+        let money = droplet.notchShowsMoney
         RollingDigits(
-            droplet.compactEarnings,
-            font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .semibold, design: .rounded),
-            color: AdaptiveColors.notchSurfacePrimaryText
+            money ? droplet.compactEarnings : droplet.compactClock,
+            font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: money ? .semibold : .medium, design: .rounded),
+            color: money ? AdaptiveColors.notchSurfacePrimaryText : droplet.compactProjectColor
         )
+        .opacity(droplet.compactIsRunning ? 1 : 0.6)
+        .animation(DroppyAnimation.state, value: droplet.compactIsRunning)
     }
 }
 

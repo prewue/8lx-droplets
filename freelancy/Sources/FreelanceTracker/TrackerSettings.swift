@@ -71,6 +71,11 @@ struct FreelanceTrackerSettings: View {
                         isOn: droplet.pinsLiveActivityBinding
                     )
                     DropletToggleRow(
+                        title: "Show the amount in the notch",
+                        subtitle: "Off, the notch shows the session's time in the project's colour.",
+                        isOn: droplet.notchShowsMoneyBinding
+                    )
+                    DropletToggleRow(
                         title: "Show a strip on start and pause",
                         subtitle: "A brief strip on the notch when a session starts, resumes or pauses.",
                         isOn: droplet.showsHUDBinding
