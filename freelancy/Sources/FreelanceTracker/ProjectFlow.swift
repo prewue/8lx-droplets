@@ -555,13 +555,21 @@ enum WheelShape {
         return reach * tanh(t * pitch / reach)
     }
 
-    /// A blur that eases in with the distance from the centre and levels off at the edges, so
-    /// the items go soft under the edge fades: a progressive blur that rides with each item.
-    func blur(_ distance: CGFloat) -> CGFloat {
+    /// The strongest blur at the wheel's outer edges (`ProgressiveEdgeBlur`); none for pills.
+    var edgeBlur: CGFloat {
         switch self {
         case .pill: 0
-        case .icon: 5 * (1 - Self.bell(distance, width: 1.85))
-        case .orb: 7 * (1 - Self.bell(distance, width: 1.55))
+        case .icon: 4
+        case .orb: 6
+        }
+    }
+
+    /// How far in from each edge the blur reaches: a little past the fade for icons, further for
+    /// the colours.
+    var edgeBlurBand: CGFloat {
+        switch self {
+        case .pill, .icon: 120
+        case .orb: 150
         }
     }
 
@@ -711,18 +719,20 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
     var body: some View {
         let position = engine.position
         let centre = Int(position.rounded())
-        ZStack {
-            ForEach((centre - Self.reach)...(centre + Self.reach), id: \.self) { virtual in
-                let t = CGFloat(virtual) - position
-                let distance = abs(t)
-                cell(items[engine.wrap(virtual)], distance < 0.5)
-                    .scaleEffect(shape.scale(distance))
-                    .opacity(shape.opacity(distance))
-                    .blur(radius: shape.blur(distance))
-                    .offset(x: shape.offset(t, pitch: pitch))
-                    .zIndex(-Double(distance))
-                    .onTapGesture { engine.go(to: virtual) }
+        ProgressiveEdgeBlur(maxRadius: shape.edgeBlur, band: shape.edgeBlurBand) {
+            ZStack {
+                ForEach((centre - Self.reach)...(centre + Self.reach), id: \.self) { virtual in
+                    let t = CGFloat(virtual) - position
+                    let distance = abs(t)
+                    cell(items[engine.wrap(virtual)], distance < 0.5)
+                        .scaleEffect(shape.scale(distance))
+                        .opacity(shape.opacity(distance))
+                        .offset(x: shape.offset(t, pitch: pitch))
+                        .zIndex(-Double(distance))
+                        .onTapGesture { engine.go(to: virtual) }
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
@@ -759,6 +769,65 @@ struct InfiniteWheel<Item: Hashable, Cell: View>: View {
             engine.start()
         }
         .onDisappear { engine.stop() }
+    }
+}
+
+/// A blur that grows towards the left and right edges by screen position, the way a system
+/// progressive blur does, built from public SwiftUI: the content is drawn `steps + 1` times at
+/// rising radii, each copy masked to a triangular weight across the edge band, and the copies
+/// are added (`plusLighter`) so the weights sum to one everywhere and the blur changes
+/// continuously with x. Only the sharp copy takes clicks or reaches VoiceOver.
+struct ProgressiveEdgeBlur<Content: View>: View {
+    let maxRadius: CGFloat
+    let band: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    private static var steps: Int { 4 }
+
+    var body: some View {
+        if maxRadius <= 0 {
+            content()
+        } else {
+            ZStack {
+                ForEach(0...Self.steps, id: \.self) { step in
+                    content()
+                        .blur(radius: radius(step))
+                        .mask(weight(step))
+                        .blendMode(step == 0 ? .normal : .plusLighter)
+                        .allowsHitTesting(step == 0)
+                        .accessibilityHidden(step != 0)
+                }
+            }
+            .compositingGroup()
+        }
+    }
+
+    /// Radii rise slowly first, so the blur eases in from the inner edge of the band.
+    private func radius(_ step: Int) -> CGFloat {
+        maxRadius * pow(CGFloat(step) / CGFloat(Self.steps), 1.6)
+    }
+
+    /// This copy's share of each point: 1 where the band is at its level, falling linearly to 0
+    /// at the neighbouring levels. Level 0 (sharp) also owns the middle.
+    private func weight(_ step: Int) -> some View {
+        HStack(spacing: 0) {
+            bandGradient(step, mirrored: false).frame(width: band)
+            Rectangle().fill(step == 0 ? Color.black : Color.clear)
+            bandGradient(step, mirrored: true).frame(width: band)
+        }
+    }
+
+    /// Across a band from its inner edge (level 0) to the outer edge (level `steps`).
+    private func bandGradient(_ step: Int, mirrored: Bool) -> LinearGradient {
+        let stops = (0...Self.steps).map { level in
+            let inner = CGFloat(level) / CGFloat(Self.steps)
+            return Gradient.Stop(
+                color: level == step ? .black : .clear,
+                location: mirrored ? inner : 1 - inner
+            )
+        }
+        .sorted { $0.location < $1.location }
+        return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
     }
 }
 
