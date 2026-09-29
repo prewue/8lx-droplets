@@ -103,7 +103,7 @@ private struct EarningPill: View {
     }
 }
 
-/// The Freelancy logo (`app-logo.svg`, the same artwork as the droplet icon), drawn so its long
+/// The Freelancy logo (the droplet icon's artwork, `FreelanceTracker.icon`), drawn so its long
 /// hand can turn: the sky gradient, the glow, the frosted dial with its rim, sixteen dots lit by
 /// a conic gradient that trails the long hand, and the two hands. All measures are the SVG's,
 /// on its 1224 canvas.
