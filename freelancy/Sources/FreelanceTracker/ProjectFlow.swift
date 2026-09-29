@@ -194,8 +194,9 @@ private struct FlowNav<Trailing: View>: View {
 }
 
 /// The currency step's search: a glass disc the size of the back button that opens across the
-/// nav row into a field. Opening runs in beats: the title fades out, then the disc springs open,
-/// then the magnifier and the placeholder come in out of a blur. Closing runs them backwards.
+/// nav row into a field. Opening runs in beats: the title fades out, then the disc springs open
+/// with the magnifier riding to its leading edge, then the placeholder and the close button come
+/// in out of a blur. Closing runs them backwards and the magnifier rides back to the middle.
 /// `query` is `nil` while it is a disc. Return confirms the currency in the middle; Escape closes.
 private struct NavSearch: View {
     @Binding var query: String?
@@ -206,8 +207,9 @@ private struct NavSearch: View {
     /// Bumped on every open and close, so a beat left over from the other one does nothing.
     @State private var generation = 0
 
-    /// A spring with a visible, soft overshoot for the disc opening and closing.
-    private static let spring = Animation.spring(response: 0.48, dampingFraction: 0.68)
+    /// A spring with a small, soft overshoot for the disc opening and closing.
+    private static let spring = Animation.spring(response: 0.46, dampingFraction: 0.8)
+    private static let iconWidth: CGFloat = 14
     private static let blurIn = AnyTransition.modifier(
         active: BlurFade(radius: 6, opacity: 0),
         identity: BlurFade(radius: 0, opacity: 1)
@@ -215,14 +217,14 @@ private struct NavSearch: View {
 
     var body: some View {
         let shape = Capsule(style: .continuous)
-        // Between the disc and the open field the magnifier sits blurred out, then comes back in.
-        let iconHidden = isExpanded && !showsContent
+        // The magnifier stays on the leading edge: centred in the disc by the disc's own padding,
+        // it rides with the spring to the field's leading edge and back.
+        let collapsedPadding = (FreelanceTrackerDroplet.navHeight - Self.iconWidth) / 2
         HStack(spacing: DroppySpacing.xsm) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(DroppyGlassControl.neutralInk())
-                .blur(radius: iconHidden ? 6 : 0)
-                .opacity(iconHidden ? 0 : 1)
+                .frame(width: Self.iconWidth)
             if showsContent {
                 FlowTextField(
                     text: Binding(get: { query ?? "" }, set: { query = $0 }),
@@ -256,9 +258,9 @@ private struct NavSearch: View {
                 .transition(Self.blurIn)
             }
         }
-        .padding(.horizontal, isExpanded ? DroppySpacing.smd : 0)
-        .frame(width: isExpanded ? nil : FreelanceTrackerDroplet.navHeight, height: FreelanceTrackerDroplet.navHeight)
-        .frame(maxWidth: isExpanded ? .infinity : FreelanceTrackerDroplet.navHeight)
+        .padding(.horizontal, isExpanded ? DroppySpacing.smd : collapsedPadding)
+        .frame(width: isExpanded ? nil : FreelanceTrackerDroplet.navHeight, height: FreelanceTrackerDroplet.navHeight, alignment: .leading)
+        .frame(maxWidth: isExpanded ? .infinity : FreelanceTrackerDroplet.navHeight, alignment: .leading)
         .droppyGlassControlChrome(shape: AnyShape(shape))
         .contentShape(shape)
         .onTapGesture {
@@ -276,7 +278,7 @@ private struct NavSearch: View {
             try? await Task.sleep(for: .milliseconds(120))
             guard beat == generation else { return }
             withAnimation(Self.spring) { isExpanded = true }
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: .milliseconds(260))
             guard beat == generation else { return }
             withAnimation(.easeOut(duration: 0.28)) { showsContent = true }
         }
