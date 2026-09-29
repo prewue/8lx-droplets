@@ -1061,11 +1061,12 @@ private struct CompactFigureView: View {
         RollingDigits(
             showsMoney ? droplet.notchEarnings : droplet.notchClock,
             font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .medium, design: .rounded),
-            color: highlighted ? droplet.notchColor : AdaptiveColors.notchSurfaceSecondaryText
+            color: highlighted ? droplet.notchColor : Color.white.opacity(0.45)
         )
         .opacity(droplet.notchIsRunning ? 1 : 0.6)
         .animation(DroppyAnimation.state, value: droplet.notchIsRunning)
-        .padding(highlighted ? .trailing : .leading, highlighted ? 0 : DroppySpacing.sm)
+        // Centred in its wing, between the camera housing and the row's outer edge.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
