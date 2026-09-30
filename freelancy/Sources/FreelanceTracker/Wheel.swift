@@ -444,7 +444,7 @@ struct RulerWheel: View {
         let fade = distance >= 3 ? 0 : max(0, min(1, (3 - distance) / 0.8))
         let tinted = exp(-0.8 * distance) * fade
         return ZStack {
-            Capsule().fill(AdaptiveColors.notchSurfaceCardFill)
+            Capsule().fill(AdaptiveColors.notchSurfacePrimaryText.opacity(0.2))
             Capsule().fill(tint).opacity(tinted)
         }
         .frame(width: Self.tickWidth, height: Self.restHeight + (Self.height - Self.restHeight) * lift)
