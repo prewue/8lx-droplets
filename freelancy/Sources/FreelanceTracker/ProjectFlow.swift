@@ -785,8 +785,7 @@ struct FlowTextField: NSViewRepresentable {
         field.focusRingType = .none
         field.alignment = alignment
         field.font = font
-        field.textColor = .white
-        field.appearance = NSAppearance(named: .darkAqua)
+        field.textColor = NSColor(AdaptiveColors.notchSurfacePrimaryText)
         field.lineBreakMode = .byTruncatingTail
         field.usesSingleLineMode = true
         field.cell?.isScrollable = true
@@ -814,7 +813,7 @@ struct FlowTextField: NSViewRepresentable {
         paragraph.alignment = alignment
         return NSAttributedString(string: placeholder, attributes: [
             .font: font,
-            .foregroundColor: NSColor.white.withAlphaComponent(0.32),
+            .foregroundColor: NSColor(AdaptiveColors.notchSurfaceTertiaryText),
             .paragraphStyle: paragraph
         ])
     }
@@ -874,7 +873,7 @@ final class FlowNSTextField: NSTextField {
         guard let window, currentEditor() == nil else { return }
         guard FlowFocus.ensureKey(window) else { return }
         if window.makeFirstResponder(self), let editor = currentEditor() as? NSTextView {
-            editor.insertionPointColor = .white
+            editor.insertionPointColor = NSColor(AdaptiveColors.notchSurfacePrimaryText)
             editor.selectedRange = NSRange(location: stringValue.utf16.count, length: 0)
         }
     }

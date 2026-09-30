@@ -5,10 +5,6 @@ import SwiftUI
 struct StartScreen: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
 
-    /// Where the beam stopped and when it last started, so it resumes smoothly on hover.
-    @State private var beamTurns: Double = 0
-    @State private var beamRunningSince: Date?
-
     var body: some View {
         VStack(spacing: 0) {
             StartEmblem()
@@ -24,9 +20,9 @@ struct StartScreen: View {
                 .lineSpacing(5)
                 .foregroundStyle(LinearGradient(
                     stops: [
-                        .init(color: .white.opacity(0.25), location: 0),
-                        .init(color: .white, location: 0.5),
-                        .init(color: .white.opacity(0.25), location: 1)
+                        .init(color: AdaptiveColors.notchSurfacePrimaryText.opacity(0.25), location: 0),
+                        .init(color: AdaptiveColors.notchSurfacePrimaryText, location: 0.5),
+                        .init(color: AdaptiveColors.notchSurfacePrimaryText.opacity(0.25), location: 1)
                     ],
                     startPoint: .leading,
                     endPoint: .trailing
@@ -44,137 +40,10 @@ struct StartScreen: View {
                     .padding(.horizontal, DroppySpacing.xl)
                     .frame(height: 30)
             }
-            .buttonStyle(ClearGlassButtonStyle())
-            .background { EdgeBeam(turnsBeforePause: beamTurns, runningSince: beamRunningSince) }
-            .onHover { hovering in
-                if hovering, beamRunningSince == nil {
-                    beamRunningSince = Date()
-                } else if !hovering, let since = beamRunningSince {
-                    beamTurns += Date().timeIntervalSince(since) / EdgeBeam.secondsPerTurn
-                    beamRunningSince = nil
-                }
-            }
+            .buttonStyle(DroppyGlassButtonStyle())
             .padding(.top, DroppySpacing.xl)
-            // Room for the glow under the button.
-            .padding(.bottom, DroppySpacing.mdl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-/// Clear glass on macOS 26 and later, Droppy's glass before that.
-private struct ClearGlassButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        ClearGlassLabel(configuration: configuration)
-    }
-}
-
-private struct ClearGlassLabel: View {
-    let configuration: ButtonStyleConfiguration
-
-    @State private var isHovering = false
-
-    var body: some View {
-        let shape = Capsule(style: .continuous)
-        Group {
-            if #available(macOS 26.0, *) {
-                configuration.label
-                    .foregroundStyle(.white)
-                    .glassEffect(.clear.interactive(), in: shape)
-                    .contentShape(shape)
-                    .scaleEffect(configuration.isPressed ? 0.96 : 1)
-                    .animation(DroppyAnimation.hoverQuick, value: configuration.isPressed)
-            } else {
-                configuration.label
-                    .foregroundStyle(.white)
-                    .droppyGlassControlChrome(
-                        shape: AnyShape(shape),
-                        isHovering: isHovering,
-                        isPressed: configuration.isPressed
-                    )
-            }
-        }
-        .onHover { isHovering = $0 }
-    }
-}
-
-/// Glowing beam that runs around the button's edge on hover.
-private struct EdgeBeam: View {
-    /// Where the beam stopped and when it started again (nil while paused).
-    let turnsBeforePause: Double
-    let runningSince: Date?
-
-    static let secondsPerTurn: Double = 2.8
-    private static let glowRoom: CGFloat = 24
-
-    private var isActive: Bool { runningSince != nil }
-
-    private static let deepBlue = Color(red: 0, green: 0.35, blue: 1)
-    private static let skyBlue = Color(red: 0.35, green: 0.72, blue: 1)
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: nil, paused: !isActive)) { timeline in
-            let turn = turnsBeforePause + (runningSince.map { max(0, timeline.date.timeIntervalSince($0)) / Self.secondsPerTurn } ?? 0)
-            let beam = AngularGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .clear, location: 0.5),
-                    .init(color: Self.deepBlue, location: 0.68),
-                    .init(color: Self.skyBlue, location: 0.8),
-                    .init(color: .white, location: 0.87),
-                    .init(color: Self.deepBlue, location: 0.95),
-                    .init(color: .clear, location: 1)
-                ],
-                center: .center,
-                angle: .degrees(turn.truncatingRemainder(dividingBy: 1) * 360)
-            )
-            let shape = Capsule(style: .continuous)
-            ZStack {
-                // Outer glow that spills past the button.
-                shape.fill(beam)
-                    .mask(shape.strokeBorder(lineWidth: 10))
-                    .blur(radius: 9)
-                    .saturation(1.4)
-                    // Fade out below the button so the widget edge never cuts it.
-                    .padding(Self.glowRoom)
-                    .mask {
-                        GeometryReader { proxy in
-                            let height = proxy.size.height
-                            let buttonBottom = height - Self.glowRoom
-                            LinearGradient(
-                                stops: [
-                                    .init(color: .black, location: (buttonBottom + 2) / height),
-                                    .init(color: .clear, location: (buttonBottom + 12) / height)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        }
-                    }
-                    .padding(-Self.glowRoom)
-
-                // Line and inner glow, clipped to the button.
-                ZStack {
-                    shape.fill(beam)
-                        .mask(shape.strokeBorder(lineWidth: 18).blur(radius: 9))
-                        .blur(radius: 9)
-                        .opacity(0.9)
-                    shape.fill(beam)
-                        .mask(shape.strokeBorder(lineWidth: 9).blur(radius: 3.5))
-                        .blur(radius: 3.5)
-                        .blendMode(.plusLighter)
-                    shape.fill(beam)
-                        .mask(shape.strokeBorder(lineWidth: 2.5))
-                        .blendMode(.plusLighter)
-                }
-                .compositingGroup()
-                .saturation(1.35)
-                .clipShape(shape)
-            }
-        }
-        .opacity(isActive ? 1 : 0)
-        .animation(DroppyAnimation.hover, value: isActive)
-        .allowsHitTesting(false)
     }
 }
 

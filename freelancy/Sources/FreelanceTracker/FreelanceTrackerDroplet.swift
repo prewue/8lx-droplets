@@ -893,7 +893,7 @@ extension FreelanceTrackerDroplet: ShelfWidgetProviding {
     static let groupedHeight: CGFloat = hostInsets + 94
 
     /// Start screen content height.
-    static let startScreenHeight: CGFloat = 209
+    static let startScreenHeight: CGFloat = 195
 
     static let flowBodyHeight: CGFloat = 80
     static let flowActionHeight: CGFloat = 28
@@ -1061,7 +1061,7 @@ private struct CompactFigureView: View {
         RollingDigits(
             showsMoney ? droplet.notchEarnings : droplet.notchClock,
             font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .medium, design: .rounded),
-            color: highlighted ? droplet.notchColor : Color.white.opacity(0.45)
+            color: highlighted ? droplet.notchColor : AdaptiveColors.notchSurfacePrimaryText.opacity(0.45)
         )
         .opacity(droplet.notchIsRunning ? 1 : 0.6)
         .animation(DroppyAnimation.state, value: droplet.notchIsRunning)
