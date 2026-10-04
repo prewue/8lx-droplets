@@ -3,7 +3,7 @@
   "name": "Freelancy",
   "version": "1.1.0",
   "summary": "Bill by the hour and watch the money tick in the notch",
-  "description": "Freelancy keeps track of the time and money for your hourly work, right on the Droppy shelf.\n\nCreate projects with an hourly rate and a currency, start and pause sessions, and see the time or the amount earned beside the notch. Analytics shows two weeks of time and money, and any project's sessions can be exported to CSV.",
+  "description": "Freelancy keeps track of the time and money for your hourly work, right on the Droppy shelf.\n\nCreate projects with an hourly rate and a currency, start and pause sessions, and see the time and the amount earned beside the notch while a session runs. Analytics shows two weeks of time and money, and any project's sessions can be exported to CSV.",
   "category": "Productivity",
   "kit": {
     "abi": 1,

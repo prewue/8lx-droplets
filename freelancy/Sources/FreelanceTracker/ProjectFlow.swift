@@ -182,7 +182,7 @@ private struct FlowNav<Trailing: View>: View {
                 .lineLimit(1)
                 .opacity(hidesTitle ? 0 : 1)
                 .blur(radius: hidesTitle ? 4 : 0)
-                .animation(.easeOut(duration: 0.16), value: hidesTitle)
+                .animation(DroppyAnimation.hoverQuick, value: hidesTitle)
             HStack(spacing: DroppySpacing.sm) {
                 CornerButton(systemImage: "chevron.left", help: "Back", action: back)
                 Spacer(minLength: 0)
@@ -269,28 +269,28 @@ private struct NavSearch: View {
     private func open() {
         generation += 1
         let beat = generation
-        withAnimation(.easeOut(duration: 0.16)) { query = "" }
+        withAnimation(DroppyAnimation.hoverQuick) { query = "" }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(120))
             guard beat == generation else { return }
             withAnimation(Self.spring) { isExpanded = true }
             try? await Task.sleep(for: .milliseconds(260))
             guard beat == generation else { return }
-            withAnimation(.easeOut(duration: 0.28)) { showsContent = true }
+            withAnimation(DroppyAnimation.state) { showsContent = true }
         }
     }
 
     private func close() {
         generation += 1
         let beat = generation
-        withAnimation(.easeIn(duration: 0.12)) { showsContent = false }
+        withAnimation(DroppyAnimation.hoverQuick) { showsContent = false }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(80))
             guard beat == generation else { return }
             withAnimation(Self.spring) { isExpanded = false }
             try? await Task.sleep(for: .milliseconds(220))
             guard beat == generation else { return }
-            withAnimation(.easeOut(duration: 0.18)) { query = nil }
+            withAnimation(DroppyAnimation.state) { query = nil }
         }
     }
 }
