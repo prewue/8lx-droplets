@@ -56,6 +56,16 @@ extension FreelanceTrackerDroplet {
 }
 
 enum TrackerCSV {
+    /// The calendar day in the user's time zone, like "2026-09-30".
+    static func day(_ date: Date, in timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
     static let header = "Project,Session,Date,Started,Duration,Hours,Rate,Currency,Earned,Status"
 
     static func render(projects: [Project], sessions: [WorkSession], now: Date) -> String {
@@ -69,7 +79,7 @@ enum TrackerCSV {
             let fields = [
                 project.name,
                 session.name,
-                session.createdAt.formatted(.iso8601.year().month().day().dateSeparator(.dash)),
+                day(session.createdAt),
                 started,
                 TrackerClock.full(seconds),
                 String(format: "%.2f", seconds / 3600),

@@ -150,7 +150,6 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         sessionRename = nil
         pendingConfirmation = nil
         freshSessionID = nil
-        notchSessionID = nil
         screen = .menu
         host = nil
     }
@@ -172,12 +171,8 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
         sessions.first { $0.isRunning }
     }
 
-    /// Session shown in the notch: the running one, or the last one after it is paused.
-    private var notchSessionID: UUID?
-
-    var notchSession: WorkSession? {
-        runningSession ?? notchSessionID.flatMap { session($0) }
-    }
+    /// Session shown in the notch: the running one. A paused session gives the notch back.
+    var notchSession: WorkSession? { runningSession }
 
     public func project(_ id: UUID) -> Project? {
         projects.first { $0.id == id }
@@ -830,7 +825,7 @@ public final class FreelanceTrackerDroplet: NSObject, ObservableObject, Droplet 
     public func exportCSV(projectID: UUID) -> URL? {
         guard let host, let project = project(projectID) else { return nil }
         let text = TrackerCSV.render(projects: [project], sessions: sessions(of: projectID), now: Date())
-        let stamp = Date().formatted(.iso8601.year().month().day().dateSeparator(.dash))
+        let stamp = TrackerCSV.day(Date())
         let safeName = project.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         let name = "\(safeName) \(stamp).csv"
         var folders = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
@@ -1024,12 +1019,9 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
         return project.formattedEarnings(for: live.duration(at: now), compact: true)
     }
 
-    var notchIsRunning: Bool { notchSession?.isRunning ?? false }
 
     private func publishActivity() {
-        if let running = runningSession { notchSessionID = running.id }
         guard let live = notchSession, let project = project(live.projectID) else {
-            notchSessionID = nil
             activitySubject.send(nil)
             return
         }
@@ -1038,7 +1030,7 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
         activitySubject.send(
             LiveActivityState(
                 priority: 400,
-                accessibilityTitle: "\(project.name), \(live.isRunning ? "" : "paused, ")\(elapsed), \(earned)",
+                accessibilityTitle: "\(project.name), \(elapsed), \(earned)",
                 // Not interactive: the host opens the shelf on click, and interactive rows are wider.
                 isInteractive: false,
                 joinsPersistentActivitySet: pinsLiveActivity,
@@ -1050,7 +1042,6 @@ extension FreelanceTrackerDroplet: LiveActivityProviding {
 }
 
 /// One figure in the notch: the highlighted one in the project's colour, the other subtle.
-/// Dimmed while the session is paused.
 private struct CompactFigureView: View {
     @ObservedObject var droplet: FreelanceTrackerDroplet
     let highlighted: Bool
@@ -1063,8 +1054,6 @@ private struct CompactFigureView: View {
             font: .system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .medium, design: .rounded),
             color: highlighted ? droplet.notchColor : AdaptiveColors.notchSurfacePrimaryText.opacity(0.45)
         )
-        .opacity(droplet.notchIsRunning ? 1 : 0.6)
-        .animation(DroppyAnimation.state, value: droplet.notchIsRunning)
         // Centred in its wing, between the camera housing and the row's outer edge.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

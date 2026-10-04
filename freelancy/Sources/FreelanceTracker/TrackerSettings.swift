@@ -17,12 +17,12 @@ struct FreelanceTrackerSettings: View {
                         title: "Hourly rate",
                         value: droplet.defaultCurrency.formatRate(droplet.defaultRate),
                         binding: droplet.defaultRateBinding,
-                        range: 1...500,
-                        step: 1
+                        range: droplet.defaultCurrency.rateStep...(droplet.defaultCurrency.rateStep * 500),
+                        step: droplet.defaultCurrency.rateStep
                     )
                     DropletControlRow(
                         title: "Currency",
-                        infoTip: "What the rate slider on the shelf starts from. Every project picks its own when it is created."
+                        infoTip: "New projects start with this rate and currency."
                     ) {
                         CurrencyPicker(selected: droplet.defaultCurrency, showsName: true) { droplet.setDefaultCurrency($0) }
                     }
@@ -35,27 +35,27 @@ struct FreelanceTrackerSettings: View {
                 DropletSettingsCard {
                     DropletToggleRow(
                         title: "Start new sessions running",
-                        subtitle: "Off, a new session waits on the timer until you press Start. The session before it stops either way.",
+                        subtitle: "Off, new sessions wait for Start.",
                         isOn: droplet.startsSessionsRunningBinding
                     )
                     DropletToggleRow(
                         title: "Ask before starting a new session",
-                        subtitle: "The plus on the timer asks first. Off, it starts the session at once.",
+                        subtitle: "The plus asks before it starts a session.",
                         isOn: droplet.asksBeforeNewSessionBinding
                     )
                     DropletToggleRow(
                         title: "Name new sessions",
-                        subtitle: "The plus asks for a name before the session starts. Left empty, it gets the next Session number.",
+                        subtitle: "The plus asks for a name first.",
                         isOn: droplet.namesNewSessionsBinding
                     )
                     DropletToggleRow(
                         title: "Ask before switching projects",
-                        subtitle: "Picking another project while a session runs asks first. The running session keeps running either way.",
+                        subtitle: "Asks before switching while a session runs.",
                         isOn: droplet.asksBeforeSwitchingBinding
                     )
                     DropletToggleRow(
                         title: "Show me the money",
-                        subtitle: "The amount gets the big digits and the clock the small ones, on the timer, every card and beside the notch. Time is money, but money is money.",
+                        subtitle: "Puts the amount before the time, beside the notch too.",
                         isOn: droplet.moneyFirstBinding
                     )
                 }
@@ -67,12 +67,12 @@ struct FreelanceTrackerSettings: View {
                 DropletSettingsCard {
                     DropletToggleRow(
                         title: "Keep the tracker in the notch",
-                        subtitle: "While a session runs, the clock and the money stay beside the notch. Off, they show only while the pointer is over it.",
+                        subtitle: "Keeps the running session beside the notch.",
                         isOn: droplet.pinsLiveActivityBinding
                     )
                     DropletToggleRow(
                         title: "Show a strip on start and pause",
-                        subtitle: "A brief strip on the notch when a session starts, resumes or pauses.",
+                        subtitle: "A brief strip when a session starts or pauses.",
                         isOn: droplet.showsHUDBinding
                     )
                 }
@@ -103,7 +103,6 @@ struct FreelanceTrackerSettings: View {
                         }
                     }
                 }
-                .droppyFlatGlassControls()
             }
         }
         .onAppear {
@@ -183,12 +182,12 @@ private struct ProjectSettingsRow: View {
 
                 CurrencyPicker(selected: project.currency, showsName: false) { droplet.setCurrency(project.id, to: $0) }
 
-                Button {
+                Button(role: .destructive) {
                     withAnimation(DroppyAnimation.state) { confirmingDelete = true }
                 } label: {
                     Image(systemName: "trash")
                 }
-                .buttonStyle(DroppyCircleButtonStyle(size: 24, destructive: true, solidFill: nil, foregroundColorOverride: nil))
+                .buttonStyle(.bordered)
                 .help("Delete this project and its sessions")
                 .accessibilityLabel("Delete project")
 
@@ -196,7 +195,7 @@ private struct ProjectSettingsRow: View {
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .contentTransition(.symbolEffect(.replace))
                 }
-                .buttonStyle(DroppyCircleButtonStyle(size: 24))
+                .buttonStyle(.bordered)
                 .help(isExpanded ? "Hide sessions" : "Show sessions")
                 .accessibilityLabel(isExpanded ? "Hide sessions" : "Show sessions")
             }
@@ -241,9 +240,9 @@ private struct InlineDeleteConfirmation: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Button("Cancel", action: cancel)
-                .buttonStyle(DroppyQuietButtonStyle(size: .small))
-            Button("Delete", action: delete)
-                .buttonStyle(DroppyQuietButtonStyle(size: .small, destructive: true))
+                .buttonStyle(.bordered)
+            Button("Delete", role: .destructive, action: delete)
+                .buttonStyle(.bordered)
         }
         .fixedSize()
     }
@@ -395,12 +394,12 @@ private struct SessionSettingsRow: View {
                 )
                 .transition(DroppyTransition.element)
             } else {
-                Button {
+                Button(role: .destructive) {
                     withAnimation(DroppyAnimation.state) { confirmingDelete = true }
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "trash")
                 }
-                .buttonStyle(DroppyCircleButtonStyle(size: 20, destructive: true, solidFill: nil, foregroundColorOverride: nil))
+                .buttonStyle(.bordered)
                 .help("Delete this session")
                 .accessibilityLabel("Delete session")
             }

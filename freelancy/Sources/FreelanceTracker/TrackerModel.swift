@@ -10,13 +10,17 @@ public struct TrackerCurrency: Hashable, Sendable, Identifiable {
 
     public let symbolIsSuffix: Bool
 
+    /// One step of the rate ruler and slider, so 500 steps cover a normal hourly rate.
+    public let rateStep: Double
+
     public var id: String { code }
 
-    public init(code: String, symbol: String, name: String, symbolIsSuffix: Bool = false) {
+    public init(code: String, symbol: String, name: String, symbolIsSuffix: Bool = false, rateStep: Double = 1) {
         self.code = code
         self.symbol = symbol
         self.name = name
         self.symbolIsSuffix = symbolIsSuffix
+        self.rateStep = rateStep
     }
 
     public static let all: [TrackerCurrency] = [
@@ -24,30 +28,30 @@ public struct TrackerCurrency: Hashable, Sendable, Identifiable {
         TrackerCurrency(code: "EUR", symbol: "€", name: "Euro"),
         TrackerCurrency(code: "GBP", symbol: "£", name: "British pound"),
         TrackerCurrency(code: "CHF", symbol: "CHF", name: "Swiss franc", symbolIsSuffix: true),
-        TrackerCurrency(code: "JPY", symbol: "¥", name: "Japanese yen"),
-        TrackerCurrency(code: "CNY", symbol: "CN¥", name: "Chinese yuan"),
-        TrackerCurrency(code: "RUB", symbol: "₽", name: "Russian ruble"),
-        TrackerCurrency(code: "UAH", symbol: "₴", name: "Ukrainian hryvnia"),
-        TrackerCurrency(code: "BYN", symbol: "Br", name: "Belarusian ruble", symbolIsSuffix: true),
-        TrackerCurrency(code: "KZT", symbol: "₸", name: "Kazakhstani tenge"),
-        TrackerCurrency(code: "GEL", symbol: "₾", name: "Georgian lari"),
-        TrackerCurrency(code: "AMD", symbol: "֏", name: "Armenian dram"),
-        TrackerCurrency(code: "TRY", symbol: "₺", name: "Turkish lira"),
-        TrackerCurrency(code: "AED", symbol: "AED", name: "UAE dirham", symbolIsSuffix: true),
-        TrackerCurrency(code: "ILS", symbol: "₪", name: "Israeli shekel"),
-        TrackerCurrency(code: "INR", symbol: "₹", name: "Indian rupee"),
-        TrackerCurrency(code: "PLN", symbol: "zł", name: "Polish złoty", symbolIsSuffix: true),
-        TrackerCurrency(code: "CZK", symbol: "Kč", name: "Czech koruna", symbolIsSuffix: true),
-        TrackerCurrency(code: "SEK", symbol: "kr", name: "Swedish krona", symbolIsSuffix: true),
-        TrackerCurrency(code: "NOK", symbol: "kr", name: "Norwegian krone", symbolIsSuffix: true),
-        TrackerCurrency(code: "DKK", symbol: "kr", name: "Danish krone", symbolIsSuffix: true),
+        TrackerCurrency(code: "JPY", symbol: "¥", name: "Japanese yen", rateStep: 100),
+        TrackerCurrency(code: "CNY", symbol: "CN¥", name: "Chinese yuan", rateStep: 10),
+        TrackerCurrency(code: "RUB", symbol: "₽", name: "Russian ruble", rateStep: 100),
+        TrackerCurrency(code: "UAH", symbol: "₴", name: "Ukrainian hryvnia", rateStep: 50),
+        TrackerCurrency(code: "BYN", symbol: "Br", name: "Belarusian ruble", symbolIsSuffix: true, rateStep: 5),
+        TrackerCurrency(code: "KZT", symbol: "₸", name: "Kazakhstani tenge", rateStep: 500),
+        TrackerCurrency(code: "GEL", symbol: "₾", name: "Georgian lari", rateStep: 5),
+        TrackerCurrency(code: "AMD", symbol: "֏", name: "Armenian dram", rateStep: 500),
+        TrackerCurrency(code: "TRY", symbol: "₺", name: "Turkish lira", rateStep: 50),
+        TrackerCurrency(code: "AED", symbol: "AED", name: "UAE dirham", symbolIsSuffix: true, rateStep: 5),
+        TrackerCurrency(code: "ILS", symbol: "₪", name: "Israeli shekel", rateStep: 5),
+        TrackerCurrency(code: "INR", symbol: "₹", name: "Indian rupee", rateStep: 100),
+        TrackerCurrency(code: "PLN", symbol: "zł", name: "Polish złoty", symbolIsSuffix: true, rateStep: 5),
+        TrackerCurrency(code: "CZK", symbol: "Kč", name: "Czech koruna", symbolIsSuffix: true, rateStep: 50),
+        TrackerCurrency(code: "SEK", symbol: "kr", name: "Swedish krona", symbolIsSuffix: true, rateStep: 10),
+        TrackerCurrency(code: "NOK", symbol: "kr", name: "Norwegian krone", symbolIsSuffix: true, rateStep: 10),
+        TrackerCurrency(code: "DKK", symbol: "kr", name: "Danish krone", symbolIsSuffix: true, rateStep: 10),
         TrackerCurrency(code: "CAD", symbol: "CA$", name: "Canadian dollar"),
         TrackerCurrency(code: "AUD", symbol: "A$", name: "Australian dollar"),
-        TrackerCurrency(code: "BRL", symbol: "R$", name: "Brazilian real"),
-        TrackerCurrency(code: "MXN", symbol: "MX$", name: "Mexican peso"),
+        TrackerCurrency(code: "BRL", symbol: "R$", name: "Brazilian real", rateStep: 5),
+        TrackerCurrency(code: "MXN", symbol: "MX$", name: "Mexican peso", rateStep: 10),
         TrackerCurrency(code: "SGD", symbol: "S$", name: "Singapore dollar"),
-        TrackerCurrency(code: "HKD", symbol: "HK$", name: "Hong Kong dollar"),
-        TrackerCurrency(code: "KRW", symbol: "₩", name: "South Korean won")
+        TrackerCurrency(code: "HKD", symbol: "HK$", name: "Hong Kong dollar", rateStep: 10),
+        TrackerCurrency(code: "KRW", symbol: "₩", name: "South Korean won", rateStep: 1000)
     ]
 
     public static let usd = all[0]

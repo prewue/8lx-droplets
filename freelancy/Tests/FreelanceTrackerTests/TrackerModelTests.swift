@@ -148,6 +148,13 @@ final class TrackerCSVTests: XCTestCase {
         XCTAssertTrue(lines[1].hasSuffix(",1:30:00,1.50,60,USD,90.00,Done"), lines[1])
     }
 
+    func testDayFollowsTheUsersTimeZone() {
+        // 22:30 in London is already the next morning in Moscow.
+        let lateEvening = Date(timeIntervalSince1970: 1_767_306_600)
+        XCTAssertEqual(TrackerCSV.day(lateEvening, in: TimeZone(identifier: "UTC")!), "2026-01-01")
+        XCTAssertEqual(TrackerCSV.day(lateEvening, in: TimeZone(identifier: "Europe/Moscow")!), "2026-01-02")
+    }
+
     func testFieldsWithCommasAndQuotesAreQuoted() {
         let project = Project(name: "Acme, Inc", rate: 10, currencyCode: "EUR")
         let session = WorkSession(projectID: project.id, name: "Say \"hi\"", accumulated: 3_600)

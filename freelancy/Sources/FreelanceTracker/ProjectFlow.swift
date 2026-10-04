@@ -485,6 +485,7 @@ private struct RateStep: View {
     @State private var typed = ""
     @StateObject private var ruler = WheelEngine()
 
+    /// Ruler steps; one step is the currency's `rateStep`.
     private static let range = 1...500
 
     private var rate: Double { droplet.draft?.rate ?? draft.rate }
@@ -532,11 +533,13 @@ private struct RateStep: View {
                 engine: ruler,
                 range: Self.range,
                 value: Binding(
-                    get: { Int(rate.rounded()) },
-                    set: { whole in droplet.updateDraft { $0.rate = Double(whole) } }
+                    get: { Int((rate / currency.rateStep).rounded()) },
+                    set: { steps in droplet.updateDraft { $0.rate = Double(steps) * currency.rateStep } }
                 ),
                 tint: color
             )
+            // A new currency has a different step, so the ruler starts over on it.
+            .id(currency.code)
             .accessibilityLabel("Hourly rate")
         }
         // Nudged up without changing the layout.
@@ -555,7 +558,8 @@ private struct RateStep: View {
         }
         .onChange(of: rate) { _, typedRate in
             // Move the ruler to a typed amount.
-            let target = min(max(Int(typedRate.rounded()), Self.range.lowerBound), Self.range.upperBound) - Self.range.lowerBound
+            let steps = Int((typedRate / currency.rateStep).rounded())
+            let target = min(max(steps, Self.range.lowerBound), Self.range.upperBound) - Self.range.lowerBound
             if ruler.index != target { ruler.go(to: target) }
         }
     }
