@@ -1,9 +1,11 @@
 {
   "fill-specializations": [
     {
-      "value": {
-        "solid": "display-p3:0.08627,0.49804,1.00000,1.00000"
-      }
+      "value": "system-dark"
+    },
+    {
+      "appearance": "dark",
+      "value": "system-dark"
     }
   ],
   "groups": [
@@ -20,8 +22,8 @@
           "blend-mode": "normal",
           "glass": false,
           "hidden": false,
-          "image-name": "dial.svg",
-          "name": "Dial"
+          "image-name": "dots.svg",
+          "name": "Dots"
         }
       ],
       "shadow": {
@@ -37,14 +39,14 @@
       "layers": [
         {
           "blend-mode": "normal",
-          "glass": false,
+          "glass": true,
           "hidden": false,
-          "image-name": "background.svg",
-          "name": "Background"
+          "image-name": "face.svg",
+          "name": "Face"
         }
       ],
       "shadow": {
-        "kind": "none",
+        "kind": "neutral",
         "opacity": 0.5
       },
       "translucency": {
