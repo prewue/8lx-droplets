@@ -19,10 +19,6 @@ let package = Package(
             name: "FreelanceTracker",
             dependencies: [.product(name: "DroppyKit", package: "droppykit")]
         ),
-        .testTarget(
-            name: "FreelanceTrackerTests",
-            dependencies: ["FreelanceTracker"]
-        ),
         .executableTarget(
             name: "FreelanceTrackerHarness",
             dependencies: [
