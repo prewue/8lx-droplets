@@ -469,7 +469,7 @@ private struct ConfirmScreen: View {
                         .padding(.horizontal, compact ? DroppySpacing.md : DroppySpacing.lg)
                         .frame(height: buttonHeight)
                 }
-                .buttonStyle(VividGlassButtonStyle(accent: isDestructive ? nil : accent, destructive: isDestructive))
+                .buttonStyle(DroppyGlassButtonStyle(fill: .tinted(isDestructive ? .red : accent)))
                 .accessibilityLabel(title)
             }
             Spacer(minLength: 0)

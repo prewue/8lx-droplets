@@ -109,9 +109,9 @@ private struct FlowStep: View {
                             .padding(.horizontal, DroppySpacing.md)
                             .frame(height: FreelanceTrackerDroplet.navHeight)
                     }
-                    .buttonStyle(VividGlassButtonStyle(accent: color.color))
-                    .help("Change the colour, \(color.name)")
-                    .accessibilityLabel("Colour, \(color.name)")
+                    .buttonStyle(DroppyGlassButtonStyle(fill: .tinted(color.color)))
+                    .help("Change the color, \(color.name)")
+                    .accessibilityLabel("Color, \(color.name)")
                 }
             }
 
@@ -204,8 +204,8 @@ private struct NavSearch: View {
     /// Ignores leftover animation steps from a previous open or close.
     @State private var generation = 0
 
-    /// Soft spring for opening and closing.
-    private static let spring = Animation.spring(response: 0.46, dampingFraction: 0.8)
+    /// Opening and closing.
+    private static var spring: Animation { DroppyAnimation.tabSelect }
     private static let iconWidth: CGFloat = 14
     private static let blurIn = AnyTransition.modifier(
         active: BlurFade(radius: 6, opacity: 0),
@@ -318,12 +318,12 @@ private struct FlowActionRow: View {
                     .padding(.horizontal, DroppySpacing.xl)
                     .frame(height: FreelanceTrackerDroplet.flowActionHeight)
             }
-            .buttonStyle(VividGlassButtonStyle(accent: accent))
+            .buttonStyle(DroppyGlassButtonStyle(fill: accent.map { .tinted($0) } ?? .veil))
 
             HStack(spacing: DroppySpacing.xs) {
                 Text("or")
                     .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-                Text("Press")
+                Text("press")
                     .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
                 Image(systemName: "return")
                     .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
@@ -332,42 +332,6 @@ private struct FlowActionRow: View {
             .accessibilityHidden(true)
         }
         .frame(height: FreelanceTrackerDroplet.flowActionHeight)
-    }
-}
-
-struct VividGlassButtonStyle: ButtonStyle {
-    let accent: Color?
-    var destructive = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        VividGlassLabel(configuration: configuration, accent: accent, destructive: destructive)
-    }
-}
-
-private struct VividGlassLabel: View {
-    let configuration: ButtonStyleConfiguration
-    let accent: Color?
-    let destructive: Bool
-
-    @State private var isHovering = false
-
-    var body: some View {
-        let shape = Capsule(style: .continuous)
-        configuration.label
-            .foregroundStyle(DroppyGlassControl.neutralInk())
-            .droppyGlassControlChrome(
-                shape: AnyShape(shape),
-                fill: accent.map { .tinted($0) } ?? (destructive ? .tinted(.red) : .veil),
-                isHovering: isHovering,
-                isPressed: configuration.isPressed
-            )
-            .background {
-                if let accent {
-                    shape.fill(accent.opacity(configuration.isPressed ? 0.62 : (isHovering ? 0.56 : 0.48)))
-                }
-            }
-            .onHover { isHovering = $0 }
-            .animation(DroppyAnimation.hover, value: isHovering)
     }
 }
 

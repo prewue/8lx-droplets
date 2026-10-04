@@ -18,15 +18,7 @@ struct StartScreen: View {
             Text("Track the hours you give every client and watch what you've earned add up, right beside the notch.")
                 .font(.system(size: 13))
                 .lineSpacing(5)
-                .foregroundStyle(LinearGradient(
-                    stops: [
-                        .init(color: AdaptiveColors.notchSurfacePrimaryText.opacity(0.25), location: 0),
-                        .init(color: AdaptiveColors.notchSurfacePrimaryText, location: 0.5),
-                        .init(color: AdaptiveColors.notchSurfacePrimaryText.opacity(0.25), location: 1)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                ))
+                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .frame(maxWidth: 330)
@@ -102,22 +94,14 @@ private struct EarningPill: View {
     var tint: Color?
 
     var body: some View {
+        let fill: DroppyGlassControl.Fill = tint.map { .tinted($0) } ?? .veil
         Text(verbatim: text)
             .font(.system(size: 11, weight: .semibold, design: .rounded))
             .monospacedDigit()
-            .foregroundStyle(tint == nil ? AdaptiveColors.notchSurfacePrimaryText : .white)
+            .foregroundStyle(DroppyGlassControl.ink(for: fill))
             .padding(.horizontal, DroppySpacing.sm)
             .frame(height: 20)
-            .droppyGlassControlChrome(
-                shape: AnyShape(Capsule(style: .continuous)),
-                fill: tint.map { .tinted($0) } ?? .veil
-            )
-            // Solid tint under the glass for a stronger colour.
-            .background {
-                if let tint {
-                    Capsule(style: .continuous).fill(tint.opacity(0.85))
-                }
-            }
+            .droppyGlassControlChrome(shape: AnyShape(Capsule(style: .continuous)), fill: fill)
     }
 }
 
