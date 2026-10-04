@@ -1,19 +1,19 @@
 # Changelog
 
-## [1.1.0] - 2026-09-30
+## [1.1.0] - 2026-10-04
 
-- A welcome screen before your first project, with a new logo and a new icon.
-- A new project takes a few short steps right on the shelf: a name, an icon and its colour, then an hourly rate and its currency. The same steps edit it later.
-- Icons, colours and currencies are picked on the same smooth wheels: scroll, drag, click or use the arrow keys. Currencies can be searched by name or code.
-- The hourly rate is set on a ruler, or typed exactly.
-- Projects are glass cards in the project's colour, with its icon, earnings, time and rate.
-- Sits beside other widgets in a shelf row at a compact height, and long sessions shrink to fit.
-- Deleting a project or a session and switching projects ask first, on the shelf; starting a new session can too. The questions can be switched off in Settings.
-- Beside the notch: the amount and the time of the running session, swapped with Show me the money.
-- Analytics: two weeks of time and money as bars, the totals, and a CSV of a project's sessions in Downloads.
-- Settings follow Droppy's own form: a colour and an icon per project, rates and session lengths you can type, and deletes that ask inline.
-- Sessions can be named as they start and renamed from their card.
+The first release in the Store.
+
+- Added projects with an hourly rate, a currency, a color and an icon, each holding pausable sessions.
+- Added a timer on the shelf that showed the session's clock and the money it had earned.
+- Added the running session's time and amount beside the notch, in the order Show me the money set.
+- Added a short flow on the shelf for creating and editing a project, with wheels for the icon, color and currency and a ruler for the rate.
+- Added naming a session as it started and renaming it from its card.
+- Added a question on the shelf before a delete, a project switch or a new session, each one optional in Settings.
+- Added two weeks of time and money charts per project and a CSV of its sessions saved to Downloads.
+- Added a compact layout for a shelf row shared with other widgets.
+- Added settings for the default rate and currency, project colors and icons, and session names and lengths.
 
 ## [1.0.0] - 2026-09-18
 
-- First release: projects with an hourly rate and a currency, pausable sessions, the clock and the money beside the notch while a session runs. "Show me the money" puts the amount before the time; "Start new sessions running" can be switched off.
+- Added projects with an hourly rate and a currency, pausable sessions, and the clock and the money beside the notch while a session ran.
