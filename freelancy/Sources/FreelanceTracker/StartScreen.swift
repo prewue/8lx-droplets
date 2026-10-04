@@ -43,7 +43,7 @@ struct StartScreen: View {
 private struct StartEmblem: View {
     private static let logoSize: CGFloat = 54
     private static let badges: [(text: String, tint: Color?)] = [
-        ("+$124", nil), ("+$81", nil), ("By 8LX", FreelancyLogo.blue),
+        ("+$124", nil), ("+$81", nil), ("By 8LX", FreelancyLogo.accent),
         ("+$56", nil), ("+$97", nil), ("+$38", nil)
     ]
 
@@ -111,8 +111,8 @@ struct FreelancyLogo: View {
     /// Long hand angle; the dots' light follows it.
     var hand: Angle = .zero
 
-    /// Logo blue, #167FFF.
-    static let blue = Color(red: 0.086, green: 0.498, blue: 1)
+    /// The accent, #5B3FFF.
+    static let accent = Color(red: 0.357, green: 0.247, blue: 1)
 
     private static let canvas: CGFloat = 1224
     private static let short = Angle.degrees(131.2)
@@ -120,48 +120,37 @@ struct FreelancyLogo: View {
     var body: some View {
         let unit = size / Self.canvas
         ZStack {
+            // The system-dark tile, as the compiled icon draws it.
             LinearGradient(
-                stops: [
-                    .init(color: Color(red: 0, green: 0.192, blue: 0.820), location: 0),
-                    .init(color: Self.blue, location: 0.5),
-                    .init(color: Color(red: 0.651, green: 0.808, blue: 1), location: 0.75),
-                    .init(color: .white, location: 1)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: [Color(white: 0.19), Color(white: 0.08)],
+                startPoint: .top,
+                endPoint: .bottom
             )
-
-            Circle()
-                .fill(Color(red: 0, green: 0.220, blue: 0.902).opacity(0.42))
-                .frame(width: 840 * unit, height: 840 * unit)
-                .blur(radius: 143.7 * unit)
 
             Circle()
                 .fill(LinearGradient(
                     stops: [
-                        .init(color: .white.opacity(0.15), location: 0),
-                        .init(color: .white.opacity(0.325), location: 0.5),
-                        .init(color: .white.opacity(0.64), location: 1)
+                        .init(color: Color(red: 0.486, green: 0.392, blue: 1), location: 0),
+                        .init(color: Self.accent, location: 0.55),
+                        .init(color: Color(red: 0.290, green: 0.176, blue: 0.941), location: 1)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 ))
+                .overlay {
+                    // The glass edge: light at the top, fading round the sides.
+                    Circle()
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [.white.opacity(0.35), .white.opacity(0.04), .white.opacity(0.12)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 10 * unit
+                        )
+                }
                 .frame(width: 840 * unit, height: 840 * unit)
-
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        stops: [
-                            .init(color: .white.opacity(0.15), location: 0),
-                            .init(color: .white.opacity(0.04), location: 0.5),
-                            .init(color: .white.opacity(0.4), location: 1)
-                        ],
-                        startPoint: .topTrailing,
-                        endPoint: .bottomLeading
-                    ),
-                    lineWidth: 20 * unit
-                )
-                .frame(width: 820 * unit, height: 820 * unit)
+                .shadow(color: .black.opacity(0.35), radius: 30 * unit, y: 14 * unit)
 
             ForEach(0..<16, id: \.self) { index in
                 let angle = Double(index) * 22.5
