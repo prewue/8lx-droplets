@@ -1,0 +1,46 @@
+{
+  "id": "brightnesss",
+  "name": "Brightnesss",
+  "version": "1.0.0",
+  "summary": "XDR past 100% and dimming below zero, from the notch",
+  "description": "Brightnesss gives the built-in display one dial that goes further than the keys do.\n\nPast 100% it pushes an XDR display into its HDR headroom, so the whole desktop gets brighter in the sun. Below 0% it dims the picture past the backlight's minimum for a dark room, with Droppy itself staying bright on top. Swipe the trackpad over the shelf to move it, pinch to open it, click the sun for full XDR. Night Shift and True Tone sit beside the dial, the brightness keys can carry on past their ends, and XDR turns itself off on battery or when the Mac runs hot.",
+  "category": "System",
+  "kit": {
+    "abi": 1,
+    "minAPI": "1.9.0"
+  },
+  "minAppVersion": "15.3.0",
+  "capabilities": [
+    "hud",
+    "shelf-write",
+    "accessibility"
+  ],
+  "surfaces": [
+    "shelf-widget",
+    "settings-pane",
+    "hud"
+  ],
+  "icon": "Brightnesss.icon",
+  "creator": {
+    "name": "8lx",
+    "kind": "community",
+    "url": "https://8lx.vision",
+    "avatar": "Creator.png",
+    "gitlab": "prewue"
+  },
+  "source": {
+    "repository": "https://gitlab.com/droppyformac1/droplets/-/tree/main/droplets/brightnesss",
+    "license": "MIT"
+  },
+  "screenshots": [],
+  "keywords": [
+    "brightness",
+    "xdr",
+    "dim",
+    "display",
+    "screen",
+    "night shift",
+    "true tone",
+    "nits"
+  ]
+}
