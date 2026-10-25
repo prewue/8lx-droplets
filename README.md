@@ -4,7 +4,7 @@
 
 **Extensions for [Droppy](https://getdroppy.app), the Dynamic Island and shelf for Mac.**
 
-Crafted by [8lx](https://8lx.vision)
+Crafted by 8lx
 
 [![Release](https://img.shields.io/github/v/release/prewue/8lx-droplets?label=release&color=5E5CE6)](https://github.com/prewue/8lx-droplets/releases/latest)
 ![Droppy](https://img.shields.io/badge/Droppy-15.3%2B-111111)
@@ -88,7 +88,7 @@ The same three commands work in every droplet's folder. Always build with `dropp
 brightnesss/   Brightnesss
 freelancy/     Freelancy
 una-nota/      Una Nota
-killtree/      K*llTree, with Tools/LensTuner for its tab lens
+killtree/      K*llTree
 ```
 
 Every folder keeps its own history, carried over from the droplet's own repository.
