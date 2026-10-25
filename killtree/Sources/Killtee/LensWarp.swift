@@ -5,13 +5,13 @@ import SwiftUI
 /// Tools/LensTuner (which compiles this file and `CategoryTabs.swift`).
 struct LensTuning: Equatable, Sendable {
     /// `displacementMap` amount; negative pulls what is behind outward.
-    var amount = -20.0
+    var amount = -16.3
     /// `CASDFGlassDisplacementEffect` height: how far in from the edge it bends.
-    var zone = 15.0
+    var zone = 20.5
     /// `CASDFGlassDisplacementEffect` curvature.
     var curvature = 3.0
     /// Dispersion, percent: red bends that much less than green, blue more.
-    var spread = 19.0
+    var spread = 15.0
     /// How much the lens grows when lifted.
     var liftX = 1.2
     var liftY = 1.6
@@ -20,15 +20,29 @@ struct LensTuning: Equatable, Sendable {
     var bendHeight = 0.0
     /// The mask the bent picture is cut to, points wider and taller than the lens.
     var maskWidth = 0.0
-    var maskHeight = -12.0
+    var maskHeight = -2.0
     /// Corner of the bend shape and the mask, as a share of a full capsule.
-    var corner = 1.0
+    var corner = 0.96
     /// Soft edge of the mask, points.
     var feather = 0.0
     /// The mask's shape is taken out of the bend itself (an SDF subtraction)
     /// instead of cutting the picture: nothing inside it is bent, everything
     /// round it is, and `feather` softens the inner edge of that ring.
     var invertMask = false
+    /// A guard for the text: a hole cut out of the finished effect over the
+    /// middle of the lens, so the edges and the ends can bend hard without
+    /// the label under the lens wobbling. It leaves the bend itself alone,
+    /// so the edges keep all of it.
+    var guardsText = true
+    /// How far in from the lens's ends and from its top and bottom the
+    /// guard sits, points; a negative `guardInsetY` makes it taller than the
+    /// lens, so only its rounded ends show inside it, as arcs.
+    var guardInsetX = 27.1
+    var guardInsetY = -6.0
+    /// The guard's corners, as a share of a full capsule.
+    var guardCorner = 1.0
+    /// Soft edge of the guard alone, points; the lens's own edge stays sharp.
+    var guardSoftness = 2.0
     /// The rim: a thin line round the lens, lit the way UIKit's lifted lens
     /// is (`CASDFKeyFillHighlightEffect`, a key light and a fill light
     /// opposite it): brightest along the top and the bottom, fading towards
@@ -101,6 +115,8 @@ final class LensWarpNSView: NSView {
     private let group = CALayer()
     private let mask = CALayer()
     private let cut = CALayer()
+    /// The text guard, erased from the mask.
+    private let guardHole = CALayer()
     /// The rim: a vertical gradient seen through a stroked capsule.
     private let rim = CAGradientLayer()
     private let rimLine = CAShapeLayer()
@@ -165,6 +181,10 @@ final class LensWarpNSView: NSView {
         mask.frame = bounds
         self.cut.frame = cut
         self.cut.cornerRadius = cut.height / 2 * (tuning.invertMask ? 1 : tuning.corner)
+        let guardRect = lens.insetBy(dx: tuning.guardInsetX, dy: tuning.guardInsetY)
+        guardHole.frame = guardRect.width > 0 && guardRect.height > 0 ? guardRect : .zero
+        guardHole.cornerRadius = min(guardRect.width, guardRect.height) / 2 * tuning.guardCorner
+        guardHole.isHidden = !tuning.guardsText || guardRect.width <= 0 || guardRect.height <= 0
         for channel in channels {
             channel.backdrop.frame = bounds
             channel.field.frame = bounds
@@ -249,6 +269,10 @@ final class LensWarpNSView: NSView {
         cut.backgroundColor = NSColor.black.cgColor
         cut.cornerCurve = .continuous
         mask.addSublayer(cut)
+        guardHole.backgroundColor = NSColor.black.cgColor
+        guardHole.cornerCurve = .continuous
+        guardHole.compositingFilter = "destOut"
+        mask.addSublayer(guardHole)
         group.mask = mask
         for channel in built { group.addSublayer(channel.backdrop) }
         stage.insertSublayer(group, below: rim)
@@ -276,6 +300,12 @@ final class LensWarpNSView: NSView {
             soften.setValue("soften", forKey: "name")
             soften.setValue(0.0, forKey: "inputRadius")
             cut.filters = [soften]
+        }
+        if tuning.guardSoftness > 0.05, let soften = Self.filter("gaussianBlur") {
+            soften.setValue(tuning.guardSoftness, forKey: "inputRadius")
+            guardHole.filters = [soften]
+        } else {
+            guardHole.filters = nil
         }
         CATransaction.commit()
     }
