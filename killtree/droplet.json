@@ -1,0 +1,47 @@
+{
+  "id": "killtee",
+  "name": "K*llTree",
+  "version": "1.0.0",
+  "summary": "Close an app with every helper it leaves behind",
+  "description": "Quitting Photoshop, Figma or Zoom leaves helpers running: updaters, sync agents, brokers, often started again by launchd the moment they exit.\n\nK*llTree groups every process by the developer that signed it, under the app you know. Open a row to see what runs and what restarts itself, and close the whole family in one go: the apps quit politely, their launchd jobs are taken out so nothing starts them again, and whatever is left is ended. They stay closed, even after a restart, until you open the app again, and then everything comes back on its own.",
+  "category": "System",
+  "kit": {
+    "abi": 1,
+    "minAPI": "1.9.0"
+  },
+  "minAppVersion": "15.3.0",
+  "capabilities": [
+    "hud",
+    "shelf-write"
+  ],
+  "surfaces": [
+    "shelf-widget",
+    "settings-pane",
+    "hud"
+  ],
+  "icon": "Killtee.icon",
+  "creator": {
+    "name": "8lx",
+    "kind": "community",
+    "url": "https://8lx.vision",
+    "avatar": "Creator.png",
+    "gitlab": "prewue"
+  },
+  "source": {
+    "repository": "https://gitlab.com/droppyformac1/droplets/-/tree/main/droplets/killtee",
+    "license": "MIT"
+  },
+  "screenshots": [],
+  "keywords": [
+    "process",
+    "quit",
+    "kill",
+    "background",
+    "helper",
+    "launchd",
+    "adobe",
+    "memory",
+    "agent",
+    "daemon"
+  ]
+}
