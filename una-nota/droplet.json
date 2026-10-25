@@ -1,0 +1,35 @@
+{
+  "id": "una-nota",
+  "name": "Una Nota",
+  "version": "1.0.0",
+  "summary": "Reminders on the notch: a day, a title, a color",
+  "description": "Una Nota keeps reminders and nothing else. Pick a day on three wheels, give it a title and a note, choose a color on the line, and it waits in a list on the shelf. On the day it shows up on the notch once. Mark it done from the list or from its own page.",
+  "category": "Productivity",
+  "kit": {
+    "abi": 1,
+    "minAPI": "1.10.0"
+  },
+  "minAppVersion": "15.3.0",
+  "capabilities": [
+    "hud",
+    "shelf-write"
+  ],
+  "surfaces": [
+    "shelf-widget",
+    "settings-pane"
+  ],
+  "icon": "UnaNota.icon",
+  "creator": {
+    "name": "8lx",
+    "kind": "community",
+    "url": "https://8lx.vision",
+    "avatar": "Creator.png",
+    "gitlab": "prewue"
+  },
+  "source": {
+    "repository": "https://gitlab.com/droppyformac1/droplets/-/tree/main/droplets/una-nota",
+    "license": "MIT"
+  },
+  "screenshots": [],
+  "keywords": ["reminder", "reminders", "notes", "todo", "date", "calendar"]
+}
