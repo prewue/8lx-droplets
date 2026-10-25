@@ -121,7 +121,8 @@ private struct TipOverlay: View {
     private static let trail = DroppySpacing.sm
     private static let rowHeight = KillteeDroplet.processRowHeight
     private static let textTop: CGFloat = 1
-    private static let textBottom = DroppySpacing.xsm
+    /// With the line's own descent it reads as the `xsm` on the left.
+    private static let textBottom: CGFloat = 3
     static let fontSize: CGFloat = 11
     /// The row's hover fill as it looks over an open block, made solid.
     private static let base = Color(white: 0.215)
@@ -133,7 +134,9 @@ private struct TipOverlay: View {
             width: headFrame.width + Self.lead,
             height: Self.rowHeight
         )
-        let textSize = Self.measure(text, width: row.width - Self.lead - Self.trail)
+        let width = row.width - Self.lead - Self.trail
+        let text = Self.lines(text, width: width)
+        let textSize = Self.measure(text, width: width)
         let extra = Self.textTop + textSize.height + Self.textBottom
         // Under the row, or over it when the widget ends first.
         let below = row.maxY + extra <= area.height
@@ -169,6 +172,14 @@ private struct TipOverlay: View {
         .frame(width: area.width, height: area.height, alignment: .topLeading)
     }
 
+    /// The text as it is when it fits on one line; otherwise each sentence
+    /// on a line of its own, so no sentence leaves a word or two hanging
+    /// on the next line.
+    static func lines(_ text: String, width: CGFloat) -> String {
+        guard measure(text, width: .greatestFiniteMagnitude).width > width else { return text }
+        return text.replacingOccurrences(of: ". ", with: ".\n")
+    }
+
     /// The text's size wrapped to `width`, so the container fits however
     /// many lines it takes.
     static func measure(_ text: String, width: CGFloat) -> CGSize {
@@ -177,7 +188,7 @@ private struct TipOverlay: View {
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: NSFont.systemFont(ofSize: fontSize)]
         )
-        return CGSize(width: ceil(rect.width) + 1, height: ceil(rect.height) + 2)
+        return CGSize(width: ceil(rect.width) + 1, height: ceil(rect.height) + 1)
     }
 }
 
