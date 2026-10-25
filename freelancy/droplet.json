@@ -1,0 +1,53 @@
+{
+  "id": "freelance-tracker",
+  "name": "Freelancy",
+  "version": "1.1.0",
+  "summary": "Bill by the hour and watch the money tick in the notch",
+  "description": "Freelancy keeps track of the time and money for your hourly work, right on the Droppy shelf.\n\nCreate projects with an hourly rate and a currency, start and pause sessions, and see the time and the amount earned beside the notch while a session runs. Analytics shows two weeks of time and money, and any project's sessions can be exported to CSV.",
+  "category": "Productivity",
+  "kit": {
+    "abi": 1,
+    "minAPI": "1.10.0"
+  },
+  "minAppVersion": "15.3.0",
+  "capabilities": [
+    "hud",
+    "shelf-write"
+  ],
+  "surfaces": [
+    "shelf-widget",
+    "live-activity",
+    "settings-pane",
+    "hud"
+  ],
+  "icon": "FreelanceTracker.icon",
+  "creator": {
+    "name": "8lx",
+    "kind": "community",
+    "url": "https://8lx.vision",
+    "avatar": "Creator.png",
+    "gitlab": "prewue"
+  },
+  "source": {
+    "repository": "https://gitlab.com/droppyformac1/droplets/-/tree/main/droplets/freelance-tracker",
+    "license": "MIT"
+  },
+  "screenshots": [
+    "1.png",
+    "2.png",
+    "3.png",
+    "4.png"
+  ],
+  "keywords": [
+    "time",
+    "timer",
+    "billing",
+    "hourly",
+    "rate",
+    "money",
+    "freelance",
+    "invoice",
+    "project",
+    "client"
+  ]
+}
