@@ -42,12 +42,12 @@ enum ListRow: Identifiable {
 
     var height: CGFloat {
         switch self {
-        case .section: return KillteeDroplet.sectionHeaderHeight
-        case .closed: return KillteeDroplet.groupRowHeight
+        case .section: return KillTreeDroplet.sectionHeaderHeight
+        case .closed: return KillTreeDroplet.groupRowHeight
         case let .group(_, children):
-            return KillteeDroplet.blockHeight(children: children?.count)
+            return KillTreeDroplet.blockHeight(children: children?.count)
         case let .task(task, isOpen):
-            return KillteeDroplet.blockHeight(children: isOpen ? task.items.count : nil)
+            return KillTreeDroplet.blockHeight(children: isOpen ? task.items.count : nil)
         }
     }
 }

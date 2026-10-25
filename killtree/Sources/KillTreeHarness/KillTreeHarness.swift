@@ -1,5 +1,5 @@
 //
-//  KillteeHarness.swift
+//  KillTreeHarness.swift
 //
 //  Run with: droppykit run
 //
@@ -9,9 +9,9 @@
 
 import DroppyKit
 import DroppyKitHarness
-import Killtee
+import KillTree
 
 @main
-struct KillteeHarness: DropletHarnessApp {
-    static func makeDroplet() -> any Droplet { KillteeDroplet() }
+struct KillTreeHarness: DropletHarnessApp {
+    static func makeDroplet() -> any Droplet { KillTreeDroplet() }
 }

@@ -1,5 +1,5 @@
 {
-  "id": "killtee",
+  "id": "killtree",
   "name": "K*llTree",
   "version": "1.0.0",
   "summary": "Close an app with every helper it leaves behind",
@@ -28,7 +28,7 @@
     "gitlab": "prewue"
   },
   "source": {
-    "repository": "https://gitlab.com/droppyformac1/droplets/-/tree/main/droplets/killtee",
+    "repository": "https://gitlab.com/droppyformac1/droplets/-/tree/main/droplets/killtree",
     "license": "MIT"
   },
   "screenshots": [],

@@ -119,7 +119,7 @@ private struct TipOverlay: View {
     /// left and ends with the row; the row is `processRowHeight` tall.
     private static let lead = DroppySpacing.xsm
     private static let trail = DroppySpacing.sm
-    private static let rowHeight = KillteeDroplet.processRowHeight
+    private static let rowHeight = KillTreeDroplet.processRowHeight
     private static let textTop: CGFloat = 1
     /// With the line's own descent it reads as the `xsm` on the left.
     private static let textBottom: CGFloat = 3

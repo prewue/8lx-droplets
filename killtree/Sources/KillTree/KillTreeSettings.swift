@@ -2,8 +2,8 @@ import DroppyKit
 import SwiftUI
 
 /// The droplet's page in Droppy's Settings, from Droppy's own rows.
-struct KillteeSettings: View {
-    @ObservedObject var droplet: KillteeDroplet
+struct KillTreeSettings: View {
+    @ObservedObject var droplet: KillTreeDroplet
 
     var body: some View {
         DropletSettingsPane {
@@ -126,7 +126,7 @@ private struct JournalLine: View {
 
     private var tint: Color {
         switch entry.kind {
-        case .closed: return KillteeDroplet.closeTint
+        case .closed: return KillTreeDroplet.closeTint
         case .refused: return .orange
         default: return .secondary
         }

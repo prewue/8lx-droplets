@@ -1,9 +1,9 @@
 // Archived: the shelf's former menu screen (one glass disc per list, with a
 // count badge and the memory under each). Replaced by the tabs in the
 // category nav. Not compiled: it lives outside Sources. To bring it back,
-// move it into Sources/Killtee, add `case menu` to KillteeScreen with
-// `KillteeDroplet.menuHeight` (104) in widgetHeight, and route to it from
-// KillteeWidget. It reads `droplet.summary(of:)`, which is still there.
+// move it into Sources/KillTree, add `case menu` to KillTreeScreen with
+// `KillTreeDroplet.menuHeight` (104) in widgetHeight, and route to it from
+// KillTreeWidget. It reads `droplet.summary(of:)`, which is still there.
 
 import DroppyKit
 import SwiftUI
@@ -12,7 +12,7 @@ import SwiftUI
 
 /// The menu, like Freelancy's: one glass disc per list.
 private struct MenuScreen: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
 
     var body: some View {
         HStack(alignment: .top, spacing: DroppySpacing.xxl) {
@@ -88,7 +88,7 @@ private struct CountBadge: View {
             .contentTransition(.numericText(value: Double(count)))
             .padding(.horizontal, 4)
             .frame(minWidth: 17, minHeight: 17)
-            .background(Capsule(style: .continuous).fill(KillteeDroplet.closeTint))
+            .background(Capsule(style: .continuous).fill(KillTreeDroplet.closeTint))
     }
 }
 

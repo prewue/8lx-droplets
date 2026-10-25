@@ -290,7 +290,7 @@ enum DemoData {
         )
     ]
 
-    static let state = KillteeState(
+    static let state = KillTreeState(
         closed: [
             ClosedGroup(
                 id: "BJ4HAAB9B3|/Applications/zoom.us.app",

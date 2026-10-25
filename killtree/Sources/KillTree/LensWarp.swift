@@ -260,7 +260,7 @@ final class LensWarpNSView: NSView {
 
             let backdrop = backdropClass.init()
             backdrop.setValue(true, forKey: "enabled")
-            backdrop.setValue("killteeLensDispersion", forKey: "groupName")
+            backdrop.setValue("killtreeLensDispersion", forKey: "groupName")
             backdrop.addSublayer(field)
             backdrop.filters = [bend, keep]
             if index > 0 { backdrop.compositingFilter = "lightenBlendMode" }

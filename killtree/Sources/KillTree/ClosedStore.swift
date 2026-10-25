@@ -45,16 +45,16 @@ struct JournalEntry: Codable, Sendable, Identifiable, Hashable {
 
 /// What K*llTree keeps on disk: the closed vendors, so a Droppy relaunch keeps
 /// guarding them and can still bring them back, and a short journal.
-struct KillteeState: Codable, Sendable {
+struct KillTreeState: Codable, Sendable {
     var closed: [ClosedGroup] = []
     var journal: [JournalEntry] = []
 
     static let journalLimit = 40
 
-    static func load(from url: URL) -> KillteeState {
+    static func load(from url: URL) -> KillTreeState {
         guard let data = try? Data(contentsOf: url),
-              let state = try? JSONDecoder().decode(KillteeState.self, from: data) else {
-            return KillteeState()
+              let state = try? JSONDecoder().decode(KillTreeState.self, from: data) else {
+            return KillTreeState()
         }
         return state
     }

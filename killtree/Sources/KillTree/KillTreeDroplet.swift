@@ -1,6 +1,6 @@
 //
-//  KillteeDroplet.swift
-//  Killtee
+//  KillTreeDroplet.swift
+//  KillTree
 //
 
 import AppKit
@@ -10,14 +10,14 @@ import SwiftUI
 
 /// The class Droppy's loader instantiates, named in the bundle's
 /// `NSPrincipalClass`. Keep it empty: it runs before the host is ready.
-@objc(KillteePrincipal)
-public final class KillteePrincipal: NSObject, DropletPrincipal {
+@objc(KillTreePrincipal)
+public final class KillTreePrincipal: NSObject, DropletPrincipal {
     public override init() { super.init() }
 
-    @MainActor public func makeDroplet() -> AnyObject { KillteeDroplet() }
+    @MainActor public func makeDroplet() -> AnyObject { KillTreeDroplet() }
 }
 
-public enum KillteeScreen: Equatable {
+public enum KillTreeScreen: Equatable {
     case welcome
     case category(Category)
 }
@@ -37,22 +37,22 @@ public enum ConfirmTarget: Equatable {
 /// K*llTree: an app's whole family of processes, closed in one go and kept
 /// closed until the app is opened again.
 @MainActor
-public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
+public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     /// Must equal `DroppyDropletID` in the bundle's Info.plist and `id` in
     /// droplet.json. The loader refuses the bundle if the three disagree.
-    public nonisolated static let id: DropletID = "killtee"
+    public nonisolated static let id: DropletID = "killtree"
 
-    static let widgetID: ShelfWidgetID = "killtee"
+    static let widgetID: ShelfWidgetID = "killtree"
 
     private(set) var host: DropletHost?
 
-    @Published public private(set) var screen: KillteeScreen = .category(.apps)
+    @Published public private(set) var screen: KillTreeScreen = .category(.apps)
     @Published private(set) var groups: [AppGroup] = []
     @Published private(set) var hidden: [HiddenProcess] = []
     @Published private(set) var tasks: [TaskGroup] = []
     /// The list the confirmation screen goes back to.
     private(set) var lastCategory: Category = .apps
-    @Published private(set) var state = KillteeState()
+    @Published private(set) var state = KillTreeState()
     @Published var expanded: Set<String> = []
     /// Vendors being closed or brought back right now, with what is happening.
     @Published private(set) var working: [String: String] = [:]
@@ -115,8 +115,8 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
             loadDemo()
             // The shots show the list with one vendor open; the welcome
             // screen was checked on its own. The harness opens on Apps;
-            // KILLTEE_DEMO_SCREEN picks another list, for its shots.
-            let requested = ProcessInfo.processInfo.environment["KILLTEE_DEMO_SCREEN"].flatMap(Category.init(rawValue:))
+            // KILLTREE_DEMO_SCREEN picks another list, for its shots.
+            let requested = ProcessInfo.processInfo.environment["KILLTREE_DEMO_SCREEN"].flatMap(Category.init(rawValue:))
             screen = .category(requested ?? .apps)
             host.log.info("K*llTree activated with demo data")
             return
@@ -159,7 +159,7 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
         working = [:]
         expanded = []
         hasScanned = false
-        state = KillteeState.load(from: stateURL)
+        state = KillTreeState.load(from: stateURL)
 
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
@@ -698,8 +698,8 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
 
     private func record(_ kind: JournalEntry.Kind, _ text: String) {
         state.journal.insert(JournalEntry(date: Date(), kind: kind, text: text), at: 0)
-        if state.journal.count > KillteeState.journalLimit {
-            state.journal.removeLast(state.journal.count - KillteeState.journalLimit)
+        if state.journal.count > KillTreeState.journalLimit {
+            state.journal.removeLast(state.journal.count - KillTreeState.journalLimit)
         }
         host?.log.info(text)
     }
@@ -713,7 +713,7 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
     private func presentStrip(symbol: String, tint: Color, title: String, detail: String) {
         guard let host, showsHUD else { return }
         let request = DropletHUDRequest(
-            id: "killtee.result",
+            id: "killtree.result",
             duration: 2.2,
             priority: .normal,
             accessibilityLabel: "\(title), \(detail)"
@@ -730,7 +730,7 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
         show(.category(.apps))
     }
 
-    func show(_ target: KillteeScreen) {
+    func show(_ target: KillTreeScreen) {
         guard screen != target else { return }
         confirming = nil
         if case .category(let category) = target { lastCategory = category }
@@ -819,7 +819,7 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
 
 // MARK: - Shelf widget
 
-extension KillteeDroplet: ShelfWidgetProviding {
+extension KillTreeDroplet: ShelfWidgetProviding {
     static let hostInsets: CGFloat = DroppySpacing.sm * 2
     static let navHeight: CGFloat = CategoryNavBar.height
     static let welcomeHeight: CGFloat = 195
@@ -918,13 +918,13 @@ extension KillteeDroplet: ShelfWidgetProviding {
     }
 
     public func makeWidgetView(_ id: ShelfWidgetID, context: ShelfWidgetContext) -> AnyView {
-        AnyView(KillteeWidget(droplet: self, context: context))
+        AnyView(KillTreeWidget(droplet: self, context: context))
     }
 
     public func makeWidgetSettingsPopover(_ id: ShelfWidgetID) -> AnyView? { nil }
 }
 
-extension KillteeDroplet: ShelfWidgetDynamicLayoutProviding {
+extension KillTreeDroplet: ShelfWidgetDynamicLayoutProviding {
     public func currentLayoutTraits(for id: ShelfWidgetID) -> ShelfWidgetLayoutTraits? {
         id == Self.widgetID ? layoutTraits : nil
     }
@@ -936,7 +936,7 @@ extension KillteeDroplet: ShelfWidgetDynamicLayoutProviding {
 
 // MARK: - HUD
 
-extension KillteeDroplet: HUDPresenting {}
+extension KillTreeDroplet: HUDPresenting {}
 
 /// The result at the two outer edges, nothing under the camera housing.
 private struct ResultStrip: View {
@@ -969,9 +969,9 @@ private struct ResultStrip: View {
 
 // MARK: - Settings pane
 
-extension KillteeDroplet: SettingsPaneProviding {
+extension KillTreeDroplet: SettingsPaneProviding {
     public func makeSettingsPane(context: SettingsPaneContext) -> AnyView {
-        AnyView(KillteeSettings(droplet: self))
+        AnyView(KillTreeSettings(droplet: self))
     }
 
     public var settingsSearchEntries: [SettingsSearchEntry] {

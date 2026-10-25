@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Welcome screen shown until the user steps in.
 struct WelcomeScreen: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,7 +43,7 @@ struct WelcomeScreen: View {
 private struct WelcomeEmblem: View {
     private static let logoSize: CGFloat = 54
     private static let badges: [(text: String, tint: Color?)] = [
-        ("CoreSync", nil), ("−1.2 GB", nil), ("By 8LX", KillteeDroplet.closeTint),
+        ("CoreSync", nil), ("−1.2 GB", nil), ("By 8LX", KillTreeDroplet.closeTint),
         ("KeepAlive", nil), ("Figma Agent", nil), ("AutoUpdate", nil)
     ]
 
@@ -53,7 +53,7 @@ private struct WelcomeEmblem: View {
             let spin = time * 0.45
             ZStack {
                 pills(spin: spin, front: false)
-                KillteeLogo(size: Self.logoSize, pulse: (sin(time * 2) + 1) / 2)
+                KillTreeLogo(size: Self.logoSize, pulse: (sin(time * 2) + 1) / 2)
                 pills(spin: spin, front: true)
             }
         }
@@ -94,7 +94,7 @@ private struct OrbitPill: View {
 
 /// The K*llTree mark: a cross in a red disc on the dark tile, with a ring
 /// that breathes, the way a process tree collapses into one.
-struct KillteeLogo: View {
+struct KillTreeLogo: View {
     let size: CGFloat
     var pulse: Double = 0
 
@@ -107,17 +107,17 @@ struct KillteeLogo: View {
             )
 
             Circle()
-                .strokeBorder(KillteeDroplet.closeTint.opacity(0.25 + 0.2 * pulse), lineWidth: size * 0.025)
+                .strokeBorder(KillTreeDroplet.closeTint.opacity(0.25 + 0.2 * pulse), lineWidth: size * 0.025)
                 .frame(width: size * (0.66 + 0.06 * pulse), height: size * (0.66 + 0.06 * pulse))
 
             Circle()
                 .fill(LinearGradient(
-                    colors: [Color(red: 1, green: 0.5, blue: 0.45), KillteeDroplet.closeTint, Color(red: 0.82, green: 0.18, blue: 0.2)],
+                    colors: [Color(red: 1, green: 0.5, blue: 0.45), KillTreeDroplet.closeTint, Color(red: 0.82, green: 0.18, blue: 0.2)],
                     startPoint: .top,
                     endPoint: .bottom
                 ))
                 .frame(width: size * 0.46, height: size * 0.46)
-                .shadow(color: KillteeDroplet.closeTint.opacity(0.5), radius: size * 0.06, y: size * 0.01)
+                .shadow(color: KillTreeDroplet.closeTint.opacity(0.5), radius: size * 0.06, y: size * 0.01)
 
             Image(systemName: "xmark")
                 .font(.system(size: size * 0.2, weight: .heavy))

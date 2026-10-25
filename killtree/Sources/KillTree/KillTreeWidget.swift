@@ -3,8 +3,8 @@ import DroppyKit
 import SwiftUI
 
 /// The widget. Solo is the list; paired is the total and the heaviest vendor.
-struct KillteeWidget: View {
-    @ObservedObject var droplet: KillteeDroplet
+struct KillTreeWidget: View {
+    @ObservedObject var droplet: KillTreeDroplet
     let context: ShelfWidgetContext
 
     var body: some View {
@@ -34,7 +34,7 @@ struct KillteeWidget: View {
 
 /// Settings, the three lists as tabs, and a rescan.
 private struct CategoryNav: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
 
     var body: some View {
         CategoryNavBar(
@@ -48,7 +48,7 @@ private struct CategoryNav: View {
 }
 
 private struct CategoryScreen: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
     let category: Category
 
     var body: some View {
@@ -61,7 +61,7 @@ private struct CategoryScreen: View {
                     EmptyState(scanned: droplet.hasScanned, category: category)
                 } else {
                     VerticalFadingScroll {
-                        LazyVStack(spacing: KillteeDroplet.rowSpacing) {
+                        LazyVStack(spacing: KillTreeDroplet.rowSpacing) {
                             ForEach(rows) { row in
                                 RowView(droplet: droplet, row: row)
                             }
@@ -83,7 +83,7 @@ private struct CategoryScreen: View {
 }
 
 private struct RowView: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
     let row: ListRow
 
     var body: some View {
@@ -144,7 +144,7 @@ private struct SectionHeader: View {
         }
         .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
         .padding(.leading, DroppySpacing.sm)
-        .frame(height: KillteeDroplet.sectionHeaderHeight, alignment: .bottom)
+        .frame(height: KillTreeDroplet.sectionHeaderHeight, alignment: .bottom)
     }
 }
 
@@ -167,10 +167,10 @@ private struct TreeBranch: View {
     private static let twigEnd: CGFloat = treeColumnWidth - DroppySpacing.xsm
     /// The first row's trunk reaches up to just under the icon, across the
     /// header's lower margin and the gap before the children.
-    private static let reach: CGFloat = (KillteeDroplet.groupRowHeight - 26) / 2 + KillteeDroplet.blockChildrenGap - 3
+    private static let reach: CGFloat = (KillTreeDroplet.groupRowHeight - 26) / 2 + KillTreeDroplet.blockChildrenGap - 3
 
     var body: some View {
-        TreeBranchShape(isFirst: isFirst, isLast: isLast, trunkX: Self.trunkX, twigEnd: Self.twigEnd, reach: Self.reach, gap: KillteeDroplet.childRowSpacing)
+        TreeBranchShape(isFirst: isFirst, isLast: isLast, trunkX: Self.trunkX, twigEnd: Self.twigEnd, reach: Self.reach, gap: KillTreeDroplet.childRowSpacing)
             .stroke(AdaptiveColors.notchSurfaceTertiaryText.opacity(0.315), style: StrokeStyle(lineWidth: 1, lineCap: .butt, lineJoin: .round))
             .frame(width: treeColumnWidth)
             .accessibilityHidden(true)
@@ -264,10 +264,10 @@ private struct CloseDisc: View {
         Button(action: action) {
             Image(systemName: "xmark")
                 .font(.system(size: size * 0.38, weight: .bold))
-                .foregroundStyle(KillteeDroplet.closeTint)
+                .foregroundStyle(KillTreeDroplet.closeTint)
                 .frame(width: size, height: size)
         }
-        .buttonStyle(DroppyGlassButtonStyle(shape: AnyShape(Circle()), fill: .tinted(KillteeDroplet.closeTint)))
+        .buttonStyle(DroppyGlassButtonStyle(shape: AnyShape(Circle()), fill: .tinted(KillTreeDroplet.closeTint)))
         .help(help)
         .accessibilityLabel(help)
     }
@@ -354,7 +354,7 @@ private struct KillPill: View {
     @State private var isHovering = false
     @State private var hold: Task<Void, Never>?
 
-    private var red: Color { KillteeDroplet.closeTint }
+    private var red: Color { KillTreeDroplet.closeTint }
 
     private var label: String? {
         switch mode {
@@ -497,7 +497,7 @@ extension View {
 /// or opened. Asked to close, its name turns red, the line under it says
 /// what will end, and its icon shakes until Kill or the way back is chosen.
 private struct GroupBlock: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
     let group: AppGroup
     let children: [ProcessCluster]?
 
@@ -528,7 +528,7 @@ private struct GroupBlock: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(verbatim: group.name)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(isConfirming ? KillteeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
+                                .foregroundStyle(isConfirming ? KillTreeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
                                 .lineLimit(1)
                             Text(verbatim: isConfirming ? droplet.killNote(for: target) : subtitle)
                                 .font(.system(size: 11))
@@ -569,11 +569,11 @@ private struct GroupBlock: View {
                     )
                 }
             }
-            .frame(height: KillteeDroplet.groupRowHeight)
+            .frame(height: KillTreeDroplet.groupRowHeight)
             .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
 
             if let children {
-                VStack(spacing: KillteeDroplet.childRowSpacing) {
+                VStack(spacing: KillTreeDroplet.childRowSpacing) {
                     ForEach(Array(children.enumerated()), id: \.element.id) { index, cluster in
                         let child = ConfirmTarget.cluster(group: group.id, cluster: cluster.id)
                         ClusterRow(
@@ -590,14 +590,14 @@ private struct GroupBlock: View {
                         .transition(.evaporate)
                     }
                 }
-                .padding(.top, KillteeDroplet.blockChildrenGap)
-                .padding(.bottom, KillteeDroplet.blockBottomInset)
+                .padding(.top, KillTreeDroplet.blockChildrenGap)
+                .padding(.bottom, KillTreeDroplet.blockBottomInset)
                 .transition(DroppyTransition.element)
             }
         }
         .padding(.horizontal, DroppySpacing.sm)
         .background { BlockSurface(isOpen: isOpen, isHovering: isHovering) }
-        .opacity(isOpen || group.isAppRunning || isHovering || isConfirming ? 1 : KillteeDroplet.closedAppOpacity)
+        .opacity(isOpen || group.isAppRunning || isHovering || isConfirming ? 1 : KillTreeDroplet.closedAppOpacity)
         .onHover { isHovering = $0 }
         .animation(DroppyAnimation.hoverQuick, value: isHovering)
     }
@@ -646,13 +646,13 @@ private struct ClusterRow: View {
         return HStack(spacing: DroppySpacing.sm) {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(process.keepAlive ? KillteeDroplet.closeTint : AdaptiveColors.notchSurfaceTertiaryText)
+                .foregroundStyle(process.keepAlive ? KillTreeDroplet.closeTint : AdaptiveColors.notchSurfaceTertiaryText)
                 .frame(width: childSymbolWidth, alignment: .leading)
                 .jiggle(isConfirming)
             Text(verbatim: process.name)
                 .font(.system(size: 12))
                 .foregroundStyle(isConfirming
-                    ? KillteeDroplet.closeTint
+                    ? KillTreeDroplet.closeTint
                     : (process.kind.isBackground ? AdaptiveColors.notchSurfacePrimaryText : AdaptiveColors.notchSurfaceSecondaryText))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -696,14 +696,14 @@ private struct ClusterRow: View {
                     Color.clear.frame(width: 24, height: 20)
                 }
             }
-            .frame(height: KillteeDroplet.processRowHeight)
+            .frame(height: KillTreeDroplet.processRowHeight)
             .hoverTip(cluster.role, isHovering: isHovering && !isConfirming)
             .background { ChildRowSurface(isHovering: isHovering) }
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
             .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
         }
-        .frame(height: KillteeDroplet.processRowHeight)
+        .frame(height: KillTreeDroplet.processRowHeight)
     }
 }
 
@@ -750,7 +750,7 @@ private struct ChildRowSurface: View {
 
 /// A terminal tool and its sessions, or a server and its processes.
 private struct TaskBlock: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
     let task: TaskGroup
     let isOpen: Bool
 
@@ -780,7 +780,7 @@ private struct TaskBlock: View {
                             HStack(alignment: .firstTextBaseline, spacing: DroppySpacing.xs) {
                                 Text(verbatim: task.name)
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(isConfirming ? KillteeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
+                                    .foregroundStyle(isConfirming ? KillTreeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 if let age = task.age, !isConfirming {
@@ -827,11 +827,11 @@ private struct TaskBlock: View {
                     cancel: { droplet.cancelConfirmation() }
                 )
             }
-            .frame(height: KillteeDroplet.groupRowHeight)
+            .frame(height: KillTreeDroplet.groupRowHeight)
             .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
 
             if isOpen {
-                VStack(spacing: KillteeDroplet.childRowSpacing) {
+                VStack(spacing: KillTreeDroplet.childRowSpacing) {
                     ForEach(Array(task.items.enumerated()), id: \.element.id) { index, item in
                         let child = ConfirmTarget.item(task: task.id, item: item.id)
                         TaskItemRow(
@@ -848,8 +848,8 @@ private struct TaskBlock: View {
                         .transition(.evaporate)
                     }
                 }
-                .padding(.top, KillteeDroplet.blockChildrenGap)
-                .padding(.bottom, KillteeDroplet.blockBottomInset)
+                .padding(.top, KillTreeDroplet.blockChildrenGap)
+                .padding(.bottom, KillTreeDroplet.blockBottomInset)
                 .transition(DroppyTransition.element)
             }
         }
@@ -885,7 +885,7 @@ private struct TaskItemRow: View {
                 .jiggle(isConfirming)
             Text(verbatim: item.title)
                 .font(.system(size: 12))
-                .foregroundStyle(isConfirming ? KillteeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
+                .foregroundStyle(isConfirming ? KillTreeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -930,14 +930,14 @@ private struct TaskItemRow: View {
                     cancel: cancel
                 )
             }
-            .frame(height: KillteeDroplet.processRowHeight)
+            .frame(height: KillTreeDroplet.processRowHeight)
             .hoverTip(role, isHovering: isHovering && !isConfirming)
             .background { ChildRowSurface(isHovering: isHovering) }
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
             .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
         }
-        .frame(height: KillteeDroplet.processRowHeight)
+        .frame(height: KillTreeDroplet.processRowHeight)
     }
 }
 
@@ -956,7 +956,7 @@ private struct Tag: View {
 
 /// A vendor or a service K*llTree keeps closed, with the way back.
 private struct ClosedRow: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
     let closed: ClosedGroup
 
     var body: some View {
@@ -987,12 +987,12 @@ private struct ClosedRow: View {
             .help("Let it start again")
         }
         .padding(.horizontal, DroppySpacing.sm)
-        .frame(height: KillteeDroplet.groupRowHeight)
+        .frame(height: KillTreeDroplet.groupRowHeight)
     }
 }
 
 private struct PairedView: View {
-    @ObservedObject var droplet: KillteeDroplet
+    @ObservedObject var droplet: KillTreeDroplet
 
     var body: some View {
         let top = droplet.visibleGroups.first
@@ -1000,7 +1000,7 @@ private struct PairedView: View {
             HStack(spacing: DroppySpacing.xsm) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(KillteeDroplet.closeTint)
+                    .foregroundStyle(KillTreeDroplet.closeTint)
                 Text("K*llTree")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
@@ -1146,7 +1146,7 @@ struct VerticalFadingScroll<Content: View>: View {
     }
 }
 
-private let verticalFadingScrollSpace = "killteeVerticalFadingScroll"
+private let verticalFadingScrollSpace = "killtreeVerticalFadingScroll"
 
 /// A fade that eases in and out instead of running straight: a straight
 /// ramp shows its two ends as lines.

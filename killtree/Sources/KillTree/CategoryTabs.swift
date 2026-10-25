@@ -103,7 +103,7 @@ struct CategoryTabs: View {
     @State private var held = false
 
     private static let inset: CGFloat = 2
-    nonisolated private static let space = "killteeTabs"
+    nonisolated private static let space = "killtreeTabs"
 
     private var reducesMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     private var lifted: Bool { isLifted || holdsLifted }
