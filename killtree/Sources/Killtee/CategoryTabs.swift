@@ -32,6 +32,12 @@ public enum Category: String, Sendable, CaseIterable {
     }
 }
 
+/// Where the refresh button is: at rest, spinning while a scan runs, done
+/// once it has really finished.
+public enum RefreshPhase: Equatable, Sendable {
+    case idle, working, done
+}
+
 /// Settings, the three lists as tabs, and a rescan. The tabs stay put
 /// while the list under them changes, and one capsule flies to the chosen
 /// tab, the way UIKit's segmented control moves its selection.
@@ -40,6 +46,7 @@ struct CategoryNavBar: View {
     let select: (Category) -> Void
     let openSettings: () -> Void
     let refresh: () -> Void
+    var refreshPhase: RefreshPhase = .idle
     var tuning: LensTuning = .standard
     /// Keeps the lens lifted over the chosen tab: the tuner's still view.
     var holdsLifted = false
@@ -56,11 +63,11 @@ struct CategoryNavBar: View {
             .accessibilityLabel("Settings")
             CategoryTabs(selected: selected, select: select, tuning: tuning, holdsLifted: holdsLifted)
             Button(action: refresh) {
-                Image(systemName: "arrow.clockwise")
+                RefreshGlyph(phase: refreshPhase, size: Self.height)
             }
             .buttonStyle(DroppyCircleButtonStyle(size: Self.height))
             .help("Scan again")
-            .accessibilityLabel("Scan again")
+            .accessibilityLabel(refreshPhase == .working ? "Scanning" : "Scan again")
         }
         .frame(height: Self.height)
     }
@@ -150,13 +157,8 @@ struct CategoryTabs: View {
         // The lens's refraction and rim, over the labels so it bends them
         // too, as large as the lifted lens. The rim is always on the chosen
         // tab; the bend only while the lens is held, growing with it.
-        .overlay(alignment: .topLeading) {
-            let frame = liftedFrame
-            let margin = LensWarpNSView.margin
-            LensWarp(tuning: tuning, restSize: lensFrame.size, bends: held || holdsLifted)
-                .frame(width: frame.width + margin * 2, height: frame.height + margin * 2)
-                .offset(x: frame.minX - margin, y: frame.minY - margin)
-                .allowsHitTesting(false)
+        .overlay {
+            LensWarp(lens: liftedFrame, tuning: tuning, restSize: lensFrame.size, bends: held || holdsLifted)
         }
         .background {
             let track = Capsule(style: .continuous)
@@ -210,21 +212,25 @@ struct CategoryTabs: View {
             let nearest = Category.allCases.min { a, b in
                 abs((frames[a]?.midX ?? 0) - lensFrame.midX) < abs((frames[b]?.midX ?? 0) - lensFrame.midX)
             } ?? selected
-            if nearest != selected {
-                landed = nearest
-                select(nearest)
-            }
             settle(on: nearest)
+            if nearest != selected {
+                // Chosen once the lens has nearly landed: switching the list
+                // under a moving lens cost it frames.
+                landed = nearest
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { select(nearest) }
+            }
         } else if let tapped = Category.allCases.first(where: { frames[$0]?.contains(value.location) == true }) {
             select(tapped)
         }
     }
 
+    /// Lands a dragged lens: critically damped, so it comes to rest on the
+    /// tab without passing it, carrying the speed the drag left it with.
     private func settle(on category: Category) {
         guard let destination = frames[category] else { return }
         flight += 1
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) { lensFrame = destination }
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.92)) { isLifted = false }
+        withAnimation(.spring(response: 0.32, dampingFraction: 1)) { lensFrame = destination }
+        withAnimation(.spring(response: 0.24, dampingFraction: 1)) { isLifted = false }
     }
 
     // MARK: Clicking another tab
@@ -268,5 +274,80 @@ private struct TabLens: View {
                 .droppyGlassControlChrome(shape: AnyShape(shape), fill: .veil)
                 .opacity(isLifted ? 1 : 0)
         }
+    }
+}
+
+/// The refresh button's glyph. While a scan runs the arrow turns: it
+/// speeds up from rest rather than starting at full speed. When the scan has
+/// finished it slows to a stop while it melts into a green check on a green
+/// tint; a moment later that eases back into the arrow.
+private struct RefreshGlyph: View {
+    let phase: RefreshPhase
+    let size: CGFloat
+
+    /// Degrees a second at full speed, and how long speeding up and slowing
+    /// down take.
+    private static let speed: Double = 420
+    private static let rampUp: Double = 0.3
+    private static let rampDown: Double = 0.5
+
+    @State private var startedAt = Date.distantPast
+    @State private var stoppedAt: Date?
+
+    var body: some View {
+        let isDone = phase == .done
+        ZStack {
+            Circle()
+                .fill(Color.green.opacity(isDone ? 0.22 : 0))
+            TimelineView(.animation(paused: !isTurning)) { context in
+                Image(systemName: "arrow.clockwise")
+                    .rotationEffect(.degrees(angle(at: context.date)))
+            }
+            .opacity(isDone ? 0 : 1)
+            .scaleEffect(isDone ? 0.7 : 1)
+            .blur(radius: isDone ? 3 : 0)
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Color.green)
+                .opacity(isDone ? 1 : 0)
+                .scaleEffect(isDone ? 1 : 0.7)
+                .blur(radius: isDone ? 0 : 3)
+        }
+        .frame(width: size, height: size)
+        .animation(.smooth(duration: isDone ? 0.5 : 0.6), value: phase)
+        .onChange(of: phase) { old, new in
+            switch new {
+            case .working:
+                startedAt = Date()
+                stoppedAt = nil
+            case .done:
+                if old == .working { stoppedAt = Date() }
+            case .idle:
+                // Back upright for when it fades in again.
+                startedAt = .distantPast
+                stoppedAt = nil
+            }
+        }
+    }
+
+    /// Turning while a scan runs and while it slows after.
+    private var isTurning: Bool {
+        phase == .working || (stoppedAt.map { Date().timeIntervalSince($0) < Self.rampDown } ?? false)
+    }
+
+    /// Where the arrow points: speeding up evenly from rest, at full speed,
+    /// then slowing evenly to a stop once the scan is done.
+    private func angle(at date: Date) -> Double {
+        guard startedAt != .distantPast else { return 0 }
+        func turned(_ t: Double) -> Double {
+            let t = max(t, 0)
+            if t < Self.rampUp { return Self.speed * t * t / (2 * Self.rampUp) }
+            return Self.speed * (t - Self.rampUp / 2)
+        }
+        guard let stoppedAt else { return turned(date.timeIntervalSince(startedAt)) }
+        let atStop = turned(stoppedAt.timeIntervalSince(startedAt))
+        let since = min(date.timeIntervalSince(stoppedAt), Self.rampDown)
+        let velocity = min(stoppedAt.timeIntervalSince(startedAt) / Self.rampUp, 1) * Self.speed
+        return atStop + velocity * since - velocity * since * since / (2 * Self.rampDown)
     }
 }

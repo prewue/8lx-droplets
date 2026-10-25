@@ -23,7 +23,7 @@ struct KillteeSettings: View {
                     )
                     DropletToggleRow(
                         title: "Close again if they come back",
-                        subtitle: "Some helpers are started by other helpers, not by launchd. KillTee closes them again while the vendor is kept closed.",
+                        subtitle: "Some helpers are started by other helpers, not by launchd. K*llTree closes them again while the vendor is kept closed.",
                         isOn: droplet.guardsBinding
                     )
                     DropletToggleRow(
@@ -69,6 +69,26 @@ struct KillteeSettings: View {
                         DropletControlRow(title: "Everything") {
                             Button("Restore all") { droplet.restoreAll() }
                                 .buttonStyle(.bordered)
+                        }
+                    }
+                }
+            }
+
+            if droplet.offersDemo {
+                DropletSettingsSection {
+                    settingsSectionHeader("Testing")
+                } content: {
+                    DropletSettingsCard {
+                        DropletToggleRow(
+                            title: "Demo data",
+                            subtitle: "A made-up Mac to try the list on: open apps, leftovers, terminals and servers. Closing and restoring only change the demo; nothing real is scanned, ended or saved. Only in Droppy Playground.",
+                            isOn: droplet.demoBinding
+                        )
+                        if droplet.isDemo {
+                            DropletControlRow(title: "Start the demo over") {
+                                Button("Reset") { droplet.resetDemo() }
+                                    .buttonStyle(.bordered)
+                            }
                         }
                     }
                 }

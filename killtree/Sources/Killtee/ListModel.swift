@@ -2,19 +2,21 @@ import Darwin
 import Foundation
 
 enum ListSection: String, Sendable {
-    case closed, stopped
+    case closed, stopped, running
 
     var title: String {
         switch self {
         case .closed: return "Kept closed"
         case .stopped: return "Stopped"
+        case .running: return "Running"
         }
     }
 
     var help: String {
         switch self {
-        case .closed: return "Closed by KillTee. Anything of them that starts again is closed again until you open the app."
-        case .stopped: return "Services KillTee took out of launchd. Restore loads them again."
+        case .closed: return "Closed by K*llTree. Anything of them that starts again is closed again until you open the app."
+        case .stopped: return "Services K*llTree took out of launchd. Restore loads them again."
+        case .running: return "Everything still running, under what is kept closed."
         }
     }
 }
@@ -70,6 +72,44 @@ struct ProcessCluster: Identifiable, Sendable {
             byKey[key, default: []].append(process)
         }
         return order.map { ProcessCluster(id: $0, entries: byKey[$0]!) }
+    }
+
+    /// The row's tooltip: what the process does, where its name says, and
+    /// how it runs, in two short sentences at most.
+    var role: String {
+        let process = first
+        if process.isPrivileged { return "A service of the developer's that runs as root. Stopping it asks for your password." }
+        if process.isMenuBar { return "A menu bar app, started by the developer's helpers." }
+        if process.kind == .system { return "Part of macOS. The system starts and stops it." }
+        if process.kind == .app { return "The app itself." }
+        let how: String
+        switch process.kind {
+        case .bundled: how = "Quits with the app."
+        case .agent: how = process.keepAlive ? "Run by launchd, which restarts it when it ends." : "Run by launchd."
+        default: how = "Keeps running after the app quits."
+        }
+        return Self.purpose(of: process.name).map { $0 + " " + how } ?? how
+    }
+
+    /// What a process does, when its name says so.
+    private static func purpose(of name: String) -> String? {
+        let name = name.lowercased()
+        let purposes: [(words: [String], purpose: String)] = [
+            (["updat"], "Checks for updates and installs them."),
+            (["crash", "report"], "Sends crash reports to the developer."),
+            (["licens", "agsservice", "genuine", "activation"], "Checks the app's license."),
+            (["sync"], "Syncs files with the cloud."),
+            (["renderer"], "Draws the app's pages and windows."),
+            (["gpu"], "Does the app's graphics work."),
+            (["node", "ccxprocess"], "Runs the developer's extensions and panels."),
+            (["login", "launcher"], "Starts the app's services at login."),
+            (["notif"], "Delivers the app's notifications."),
+            (["network", "proxy"], "Handles the app's network traffic."),
+            (["font"], "Provides the developer's fonts."),
+            (["desktop service", "creative cloud"], "Runs Creative Cloud and its account."),
+            (["driver", "installer"], "Installs the developer's drivers.")
+        ]
+        return purposes.first { entry in entry.words.contains { name.contains($0) } }?.purpose
     }
 
     /// What it is, why it is listed here, and what closing does to it.

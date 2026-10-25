@@ -26,12 +26,12 @@ enum ProcessKind: Int, Sendable, Hashable, Comparable {
         case .bundled: return "Part of the open app; it ends with the app."
         case .agent: return "A launchd job: launchd starts it, at login or on demand."
         case .helper: return "Runs on its own, outside any open app."
-        case .system: return "An extension macOS starts and stops itself. KillTee leaves it alone."
+        case .system: return "An extension macOS starts and stops itself. K*llTree leaves it alone."
         }
     }
 }
 
-/// How sure KillTee is that a process belongs where it is listed.
+/// How sure K*llTree is that a process belongs where it is listed.
 enum Confidence: Int, Sendable, Comparable {
     case low, medium, high
 
@@ -88,7 +88,7 @@ enum Evidence: Sendable, Hashable {
         case let .runsAs(user): return "Runs as \(user); closing it needs an administrator"
         case let .vendorsOnlyApp(app): return "\(app) is the only app installed from this developer"
         case .menuBar: return "A menu bar app"
-        case .apple: return "Made by Apple. KillTee only quits it the normal way and never touches macOS's own services"
+        case .apple: return "Made by Apple. K*llTree only quits it the normal way and never touches macOS's own services"
         }
     }
 
@@ -136,11 +136,11 @@ struct AppGroup: Identifiable, Sendable {
     let appPath: String?
     /// Window apps of this group that are open now.
     let runningApps: [String]
-    let processes: [ProcessEntry]
+    var processes: [ProcessEntry]
     /// Its launchd jobs, loaded or not.
     let jobs: [LaunchJob]
     let loadedLabels: Set<String>
-    /// The process KillTee runs in is part of it: shown, never closed.
+    /// The process K*llTree runs in is part of it: shown, never closed.
     var isHost = false
 
     var isShared: Bool { appPath == nil }
@@ -167,7 +167,7 @@ struct AppGroup: Identifiable, Sendable {
     }
 }
 
-/// A process KillTee lists but never touches, and why.
+/// A process K*llTree lists but never touches, and why.
 struct HiddenProcess: Identifiable, Sendable, Hashable {
     enum Reason: Sendable, Hashable {
         /// Started from a terminal: a command-line tool someone is using.
@@ -179,7 +179,7 @@ struct HiddenProcess: Identifiable, Sendable, Hashable {
         /// An interpreter (node, python…) running someone's script: the
         /// signer made the runtime, not what it runs.
         case runtime
-        /// Droppy itself, which runs KillTee.
+        /// Droppy itself, which runs K*llTree.
         case host
 
         var tag: String {
@@ -195,10 +195,10 @@ struct HiddenProcess: Identifiable, Sendable, Hashable {
         var explanation: String {
             switch self {
             case .terminal: return "Started from a terminal. It is a command-line tool someone is using, not something an app left behind."
-            case .unsigned: return "No developer signature, and nothing ties it to an installed app (Homebrew services, scripts, dev servers). KillTee cannot tell whose it is."
+            case .unsigned: return "No developer signature, and nothing ties it to an installed app (Homebrew services, scripts, dev servers). K*llTree cannot tell whose it is."
             case let .foreignParent(parent): return "Started by \(parent), which is not its vendor's. It belongs to \(parent)."
             case .runtime: return "A language runtime running a script, often a dev server or an agent's tool. Its signature names who made the runtime, not whose script it runs."
-            case .host: return "Droppy itself, which runs KillTee."
+            case .host: return "Droppy itself, which runs K*llTree."
             }
         }
     }
@@ -327,7 +327,7 @@ enum GroupBuilder {
         let jobByPID = input.catalog.jobByPID
         let jobsByLabel = Dictionary(input.catalog.jobs.map { ($0.label, $0) }, uniquingKeysWith: { first, _ in first })
 
-        // Every app KillTee can attribute to: installed, and open from anywhere.
+        // Every app K*llTree can attribute to: installed, and open from anywhere.
         var apps: [String: AppRef] = [:]
         for app in input.installed {
             apps[app.path] = AppRef(path: app.path, name: app.name, bundleID: app.bundleID, teamID: app.teamID)
@@ -618,7 +618,7 @@ enum GroupBuilder {
                 loadedLabels: loaded
             ))
         }
-        // The process KillTee runs in, and everything it started.
+        // The process K*llTree runs in, and everything it started.
         var host: Set<pid_t> = [input.ownPID]
         for _ in 0..<3 {
             for process in input.processes where host.contains(process.ppid) { host.insert(process.pid) }

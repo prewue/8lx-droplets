@@ -19,9 +19,6 @@ struct KillteeWidget: View {
                 case .category(let category):
                     CategoryScreen(droplet: droplet, category: category)
                         .transition(DroppyTransition.element)
-                case .confirm(let target):
-                    ConfirmScreen(droplet: droplet, target: target)
-                        .transition(DroppyTransition.element)
                 }
             }
         }
@@ -44,7 +41,8 @@ private struct CategoryNav: View {
             selected: droplet.selectedTab,
             select: droplet.selectTab,
             openSettings: droplet.openSettings,
-            refresh: droplet.refresh
+            refresh: droplet.refreshByHand,
+            refreshPhase: droplet.refreshPhase
         )
     }
 }
@@ -78,6 +76,9 @@ private struct CategoryScreen: View {
         }
         .animation(DroppyAnimation.state, value: rows.map(\.id))
         .animation(DroppyAnimation.state, value: droplet.expanded)
+        // Over the list, not inside its scrolling, so its edges do not cut a tip.
+        .showsHoverTips()
+        .environment(\.tipShown) { droplet.tipAppeared() }
     }
 }
 
@@ -86,16 +87,19 @@ private struct RowView: View {
     let row: ListRow
 
     var body: some View {
-        switch row {
-        case let .section(section, count, _):
-            SectionHeader(section: section, count: count)
-        case let .group(group, children):
-            GroupBlock(droplet: droplet, group: group, children: children)
-        case let .closed(closed):
-            ClosedRow(droplet: droplet, closed: closed)
-        case let .task(task, isOpen):
-            TaskBlock(droplet: droplet, task: task, isOpen: isOpen)
+        Group {
+            switch row {
+            case let .section(section, count, _):
+                SectionHeader(section: section, count: count)
+            case let .group(group, children):
+                GroupBlock(droplet: droplet, group: group, children: children)
+            case let .closed(closed):
+                ClosedRow(droplet: droplet, closed: closed)
+            case let .task(task, isOpen):
+                TaskBlock(droplet: droplet, task: task, isOpen: isOpen)
+            }
         }
+        .transition(.evaporate)
     }
 }
 
@@ -166,7 +170,7 @@ private struct TreeBranch: View {
     private static let reach: CGFloat = (KillteeDroplet.groupRowHeight - 26) / 2 + KillteeDroplet.blockChildrenGap - 3
 
     var body: some View {
-        TreeBranchShape(isFirst: isFirst, isLast: isLast, trunkX: Self.trunkX, twigEnd: Self.twigEnd, reach: Self.reach)
+        TreeBranchShape(isFirst: isFirst, isLast: isLast, trunkX: Self.trunkX, twigEnd: Self.twigEnd, reach: Self.reach, gap: KillteeDroplet.childRowSpacing)
             .stroke(AdaptiveColors.notchSurfaceTertiaryText.opacity(0.315), style: StrokeStyle(lineWidth: 1, lineCap: .butt, lineJoin: .round))
             .frame(width: treeColumnWidth)
             .accessibilityHidden(true)
@@ -179,6 +183,8 @@ private struct TreeBranchShape: Shape {
     let trunkX: CGFloat
     let twigEnd: CGFloat
     let reach: CGFloat
+    /// The space down to the next row, which the trunk crosses.
+    let gap: CGFloat
 
     /// The bend from the trunk into a twig.
     private static let radius: CGFloat = 6
@@ -191,7 +197,7 @@ private struct TreeBranchShape: Shape {
         let top = isFirst ? rect.minY - reach : rect.minY
         // The trunk, down to the next row, or into the last bend.
         path.move(to: CGPoint(x: x, y: top))
-        path.addLine(to: CGPoint(x: x, y: isLast ? mid - r : rect.maxY))
+        path.addLine(to: CGPoint(x: x, y: isLast ? mid - r : rect.maxY + gap))
         // The twig, bending out of the trunk on a quarter circle.
         path.move(to: CGPoint(x: x, y: mid - r))
         path.addQuadCurve(to: CGPoint(x: x + r, y: mid), control: CGPoint(x: x, y: mid))
@@ -248,7 +254,7 @@ private struct BlockSurface: View {
     }
 }
 
-/// Droppy's glass disc, tinted red, with a red cross.
+/// Droppy's glass disc, tinted red, with a red cross: the paired widget's.
 private struct CloseDisc: View {
     let size: CGFloat
     let help: String
@@ -267,34 +273,229 @@ private struct CloseDisc: View {
     }
 }
 
-/// The group's close disc, or what it is doing while it closes.
-private struct CloseOrStatus: View {
+/// A row's way out. Droppy's red disc; pressed once, it stretches into a
+/// red Hold to Kill pill with a grey glass disc beside it to step back;
+/// held, it fills from the left and kills once full; then it shows the
+/// closing in the same pill. A child row's is smaller and, at rest, a bare
+/// cross that shows under the pointer.
+private struct KillControls: View {
+    let size: CGFloat
+    /// A child row's: a bare cross at rest instead of the red disc.
+    var isQuiet = false
+    /// A quiet one shows only under the pointer, or while it asks.
+    var isVisible = true
     let status: String?
+    let isConfirming: Bool
     let help: String
-    let action: () -> Void
+    let ask: () -> Void
+    let confirm: () -> Void
+    let cancel: () -> Void
 
     var body: some View {
-        ZStack {
-            if let status {
-                HStack(spacing: DroppySpacing.xs) {
-                    ProgressView().controlSize(.mini)
-                    Text(verbatim: status)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+        let isPill = isConfirming || status != nil
+        HStack(spacing: DroppySpacing.xsm) {
+            if isConfirming && status == nil {
+                Button(action: cancel) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: size * 0.4, weight: .semibold))
                 }
-                .transition(DroppyTransition.element)
+                .buttonStyle(DroppyCircleButtonStyle(size: size))
+                .help("Keep it running")
+                .accessibilityLabel("Keep it running")
+                .transition(.scale(scale: 0.4, anchor: .trailing).combined(with: .opacity))
+            }
+            if isQuiet && !isPill {
+                Button(action: ask) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(PlainCrossStyle())
+                .help(help)
+                .accessibilityLabel(help)
+                .transition(.opacity)
             } else {
-                CloseDisc(size: 24, help: help, action: action)
-                    .transition(DroppyTransition.element)
+                KillPill(
+                    size: size,
+                    mode: status.map { .closing($0) } ?? (isConfirming ? .hold : .disc),
+                    help: help,
+                    ask: ask,
+                    kill: confirm
+                )
+                .transition(isQuiet ? .scale(scale: 0.5, anchor: .trailing).combined(with: .opacity) : .identity)
             }
         }
-        .animation(DroppyAnimation.state, value: status)
+        .opacity(isVisible || isPill ? 1 : 0)
+        .allowsHitTesting(isVisible || isPill)
+        .frame(minWidth: 24, alignment: .trailing)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: status)
+        .animation(.easeOut(duration: 0.15), value: isVisible)
+    }
+}
+
+/// The red glass control itself, one view through all three states so its
+/// shape flows from disc to pill and on to the closing.
+private struct KillPill: View {
+    enum Mode: Equatable {
+        case disc, hold, closing(String)
+    }
+
+    let size: CGFloat
+    let mode: Mode
+    let help: String
+    let ask: () -> Void
+    let kill: () -> Void
+
+    /// How long Kill has to be held.
+    private static let holdTime: Double = 1
+
+    @State private var progress: CGFloat = 0
+    @State private var isHolding = false
+    @State private var isHovering = false
+    @State private var hold: Task<Void, Never>?
+
+    private var red: Color { KillteeDroplet.closeTint }
+
+    private var label: String? {
+        switch mode {
+        case .disc: return nil
+        case .hold: return "Hold to Kill"
+        case .closing(let status): return status
+        }
+    }
+
+    var body: some View {
+        let shape = Capsule(style: .continuous)
+        HStack(spacing: size * 0.2) {
+            if case .closing = mode {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(red)
+                    .transition(.opacity)
+            } else {
+                Image(systemName: "xmark")
+                    .font(.system(size: size * 0.38, weight: .bold))
+                    .transition(.opacity)
+            }
+            if let label {
+                Text(verbatim: label)
+                    .font(.system(size: size * 0.5, weight: .semibold))
+                    .fixedSize()
+                    .contentTransition(.interpolate)
+                    .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .leading)))
+            }
+        }
+        .foregroundStyle(red)
+        .padding(.horizontal, mode == .disc ? 0 : size * 0.42)
+        .frame(minWidth: size)
+        .frame(height: size)
+        // The hold fills the pill from the left.
+        .background(alignment: .leading) {
+            GeometryReader { proxy in
+                Rectangle()
+                    .fill(red.opacity(0.32))
+                    .frame(width: proxy.size.width * progress)
+            }
+        }
+        .droppyGlassControlChrome(shape: AnyShape(shape), fill: .tinted(red), isHovering: isHovering && mode != .disc, isPressed: isHolding)
+        .contentShape(shape)
+        .onHover { isHovering = $0 }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if mode == .hold, !isHolding { begin() }
+                }
+                .onEnded { _ in
+                    if mode == .disc { ask() } else { release() }
+                }
+        )
+        .onChange(of: mode) { _, mode in
+            if mode != .hold { release() }
+        }
+        .help(mode == .hold ? "Hold to kill it" : help)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(mode == .hold ? "Kill" : (label ?? help))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            switch mode {
+            case .disc: ask()
+            case .hold: kill()
+            case .closing: break
+            }
+        }
+    }
+
+    private func begin() {
+        isHolding = true
+        withAnimation(.linear(duration: Self.holdTime)) { progress = 1 }
+        hold = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(Self.holdTime))
+            guard !Task.isCancelled else { return }
+            hold = nil
+            isHolding = false
+            kill()
+        }
+    }
+
+    /// Let go before the pill is full: nothing happens, the fill drains.
+    private func release() {
+        hold?.cancel()
+        hold = nil
+        isHolding = false
+        withAnimation(.easeOut(duration: 0.28)) { progress = 0 }
+    }
+}
+
+/// A row that leaves: it blurs, sinks back a little and fades, while the
+/// list closes over the space it left.
+private struct Evaporate: ViewModifier {
+    let amount: Double
+
+    func body(content: Content) -> some View {
+        content
+            .blur(radius: 6 * amount)
+            .scaleEffect(1 - 0.06 * amount)
+            .opacity(1 - amount)
+    }
+}
+
+extension AnyTransition {
+    fileprivate static var evaporate: AnyTransition {
+        .asymmetric(
+            insertion: .opacity,
+            removal: .modifier(active: Evaporate(amount: 1), identity: Evaporate(amount: 0))
+                .animation(.easeOut(duration: 0.42))
+        )
+    }
+}
+
+/// Shaking the way an app's icon does on the iPhone's Home Screen while it
+/// can be deleted: a quick rock of under two degrees, a touch of bob.
+private struct Jiggle: ViewModifier {
+    let isOn: Bool
+    /// Rows do not shake in step.
+    var phase: Double = 0
+
+    func body(content: Content) -> some View {
+        TimelineView(.animation(paused: !isOn)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate + phase
+            content
+                .rotationEffect(.degrees(isOn ? 1.8 * sin(t * 2 * .pi / 0.26) : 0))
+                .offset(y: isOn ? 0.5 * sin(t * 2 * .pi / 0.21 + 1) : 0)
+        }
+    }
+}
+
+extension View {
+    fileprivate func jiggle(_ isOn: Bool, phase: Double = 0) -> some View {
+        modifier(Jiggle(isOn: isOn, phase: phase))
     }
 }
 
 /// An app or a vendor's services, and its processes under it while open.
 /// With its app closed it sits back at half opacity, until it is pointed at
-/// or opened.
+/// or opened. Asked to close, its name turns red, the line under it says
+/// what will end, and its icon shakes until Kill or the way back is chosen.
 private struct GroupBlock: View {
     @ObservedObject var droplet: KillteeDroplet
     let group: AppGroup
@@ -303,7 +504,7 @@ private struct GroupBlock: View {
     @State private var isHovering = false
 
     private var subtitle: String {
-        if group.isHost { return "Runs KillTee" }
+        if group.isHost { return "Runs K*llTree" }
         let background = group.backgroundProcesses.count
         if background > 0 { return "\(background) in the background" }
         let count = group.processes.count
@@ -312,37 +513,44 @@ private struct GroupBlock: View {
 
     var body: some View {
         let isOpen = children != nil
+        let target = ConfirmTarget.group(group.id)
+        let isConfirming = droplet.confirming == target
         VStack(spacing: 0) {
             HStack(spacing: DroppySpacing.sm) {
                 Button {
-                    droplet.toggleExpanded(group.id)
+                    if isConfirming { droplet.cancelConfirmation() } else { droplet.toggleExpanded(group.id) }
                 } label: {
                     HStack(spacing: 0) {
                         DisclosureChevron(isOpen: isOpen, isRevealed: group.isExpandable && (isOpen || isHovering))
                         AppIcon(path: group.iconPath, size: 26)
+                            .jiggle(isConfirming)
                             .padding(.trailing, DroppySpacing.sm)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(verbatim: group.name)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+                                .foregroundStyle(isConfirming ? KillteeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
                                 .lineLimit(1)
-                            Text(verbatim: subtitle)
+                            Text(verbatim: isConfirming ? droplet.killNote(for: target) : subtitle)
                                 .font(.system(size: 11))
                                 .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
                                 .lineLimit(1)
+                                .contentTransition(.interpolate)
                         }
                         Spacer(minLength: DroppySpacing.sm)
-                        Text(verbatim: Bytes.text(group.memory))
-                            .font(.system(size: 12, weight: .medium))
-                            .monospacedDigit()
-                            .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
-                            .contentTransition(.numericText())
+                        if !isConfirming {
+                            Text(verbatim: Bytes.text(group.memory))
+                                .font(.system(size: 12, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                                .contentTransition(.numericText())
+                                .transition(.opacity)
+                        }
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(group.name), \(subtitle)")
-                .accessibilityHint(isOpen ? "Hides its processes" : "Shows its processes")
+                .accessibilityLabel("\(group.name), \(isConfirming ? droplet.killNote(for: target) : subtitle)")
+                .accessibilityHint(isConfirming ? "Keeps it running" : (isOpen ? "Hides its processes" : "Shows its processes"))
 
                 if group.isHost {
                     Image(systemName: "lock.fill")
@@ -350,25 +558,36 @@ private struct GroupBlock: View {
                         .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
                         .frame(width: 24, height: 24)
                 } else {
-                    CloseOrStatus(status: droplet.working[group.id], help: "Close \(group.name) completely") {
-                        droplet.requestClose(group.id)
-                    }
+                    KillControls(
+                        size: 24,
+                        status: droplet.working[group.id],
+                        isConfirming: isConfirming,
+                        help: "Close \(group.name) completely",
+                        ask: { droplet.requestClose(target) },
+                        confirm: { droplet.confirmClose() },
+                        cancel: { droplet.cancelConfirmation() }
+                    )
                 }
             }
             .frame(height: KillteeDroplet.groupRowHeight)
+            .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
 
             if let children {
-                VStack(spacing: 0) {
+                VStack(spacing: KillteeDroplet.childRowSpacing) {
                     ForEach(Array(children.enumerated()), id: \.element.id) { index, cluster in
+                        let child = ConfirmTarget.cluster(group: group.id, cluster: cluster.id)
                         ClusterRow(
                             cluster: cluster,
                             isFirst: index == 0,
                             isLast: index == children.count - 1,
-                            isBusy: droplet.working["\(group.id)#\(cluster.id)"] != nil,
-                            onClose: group.isHost || cluster.first.kind == .system || cluster.first.isPrivileged
-                                ? nil
-                                : { droplet.requestClose(.cluster(group: group.id, cluster: cluster.id)) }
+                            status: droplet.working["\(group.id)#\(cluster.id)"],
+                            isConfirming: droplet.confirming == child,
+                            canClose: !(group.isHost || cluster.first.kind == .system || cluster.first.isPrivileged),
+                            ask: { droplet.requestClose(child) },
+                            confirm: { droplet.confirmClose() },
+                            cancel: { droplet.cancelConfirmation() }
                         )
+                        .transition(.evaporate)
                     }
                 }
                 .padding(.top, KillteeDroplet.blockChildrenGap)
@@ -378,7 +597,7 @@ private struct GroupBlock: View {
         }
         .padding(.horizontal, DroppySpacing.sm)
         .background { BlockSurface(isOpen: isOpen, isHovering: isHovering) }
-        .opacity(isOpen || group.isAppRunning || isHovering ? 1 : KillteeDroplet.closedAppOpacity)
+        .opacity(isOpen || group.isAppRunning || isHovering || isConfirming ? 1 : KillteeDroplet.closedAppOpacity)
         .onHover { isHovering = $0 }
         .animation(DroppyAnimation.hoverQuick, value: isHovering)
     }
@@ -389,8 +608,12 @@ private struct ClusterRow: View {
     let cluster: ProcessCluster
     var isFirst = false
     var isLast = false
-    var isBusy = false
-    var onClose: (() -> Void)?
+    let status: String?
+    let isConfirming: Bool
+    let canClose: Bool
+    let ask: () -> Void
+    let confirm: () -> Void
+    let cancel: () -> Void
 
     @State private var isHovering = false
 
@@ -417,59 +640,111 @@ private struct ClusterRow: View {
         return tags
     }
 
-    var body: some View {
+    /// The icon and the name.
+    private var head: some View {
         let process = cluster.first
-        HStack(spacing: DroppySpacing.sm) {
-            TreeBranch(isFirst: isFirst, isLast: isLast)
-                .padding(.trailing, -DroppySpacing.sm)
+        return HStack(spacing: DroppySpacing.sm) {
             Image(systemName: symbol)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(process.keepAlive ? KillteeDroplet.closeTint : AdaptiveColors.notchSurfaceTertiaryText)
                 .frame(width: childSymbolWidth, alignment: .leading)
+                .jiggle(isConfirming)
             Text(verbatim: process.name)
                 .font(.system(size: 12))
-                .foregroundStyle(process.kind.isBackground ? AdaptiveColors.notchSurfacePrimaryText : AdaptiveColors.notchSurfaceSecondaryText)
+                .foregroundStyle(isConfirming
+                    ? KillteeDroplet.closeTint
+                    : (process.kind.isBackground ? AdaptiveColors.notchSurfacePrimaryText : AdaptiveColors.notchSurfaceSecondaryText))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if cluster.count > 1 {
-                Text(verbatim: "×\(cluster.count)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+        }
+    }
+
+    var body: some View {
+        let process = cluster.first
+        HStack(spacing: 0) {
+            TreeBranch(isFirst: isFirst, isLast: isLast)
+            HStack(spacing: DroppySpacing.sm) {
+                head
+                if cluster.count > 1 {
+                    Text(verbatim: "×\(cluster.count)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                }
+                ForEach(tags, id: \.self) { Tag(text: $0) }
+                Spacer(minLength: DroppySpacing.sm)
+                if !isConfirming {
+                    Text(verbatim: Bytes.text(cluster.memory))
+                        .font(.system(size: 11))
+                        .monospacedDigit()
+                        .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                        .transition(.opacity)
+                }
+                if canClose {
+                    KillControls(
+                        size: 20,
+                        isQuiet: true,
+                        isVisible: isHovering,
+                        status: status,
+                        isConfirming: isConfirming,
+                        help: "End \(process.name)",
+                        ask: ask,
+                        confirm: confirm,
+                        cancel: cancel
+                    )
+                } else {
+                    Color.clear.frame(width: 24, height: 20)
+                }
             }
-            ForEach(tags, id: \.self) { Tag(text: $0) }
-            Spacer(minLength: DroppySpacing.sm)
-            Text(verbatim: Bytes.text(cluster.memory))
-                .font(.system(size: 11))
-                .monospacedDigit()
-                .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-            RowCloseSlot(isVisible: isHovering, isBusy: isBusy, help: "End \(process.name)", action: onClose)
+            .frame(height: KillteeDroplet.processRowHeight)
+            .hoverTip(cluster.role, isHovering: isHovering && !isConfirming)
+            .background { ChildRowSurface(isHovering: isHovering) }
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
         }
         .frame(height: KillteeDroplet.processRowHeight)
-        .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
     }
 }
 
-/// The small close disc a child row shows under the pointer, in the same
-/// column as the group's own.
-private struct RowCloseSlot: View {
-    let isVisible: Bool
-    let isBusy: Bool
-    let help: String
-    let action: (() -> Void)?
+/// A bare cross that takes a faint light disc under the pointer, and a
+/// slightly brighter one while pressed.
+private struct PlainCrossStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        PlainCross(configuration: configuration)
+    }
+
+    private struct PlainCross: View {
+        let configuration: ButtonStyleConfiguration
+        @State private var isHovering = false
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+                .frame(width: 20, height: 20)
+                .background {
+                    Circle().fill(AdaptiveColors.notchSurfacePrimaryText.opacity(configuration.isPressed ? 0.24 : (isHovering ? 0.15 : 0)))
+                }
+                .contentShape(Circle())
+                .onHover { isHovering = $0 }
+                .animation(DroppyAnimation.hoverQuick, value: isHovering)
+                .animation(DroppyAnimation.hoverQuick, value: configuration.isPressed)
+        }
+    }
+}
+
+/// A child row's own container: nothing at rest, a faint fill under the
+/// pointer. Drawn behind the row, a little past its symbol and close disc,
+/// so nothing in the row moves.
+private struct ChildRowSurface: View {
+    let isHovering: Bool
 
     var body: some View {
-        ZStack {
-            if isBusy {
-                ProgressView().controlSize(.mini)
-            } else if isVisible, let action {
-                CloseDisc(size: 20, help: help, action: action)
-                    .transition(DroppyTransition.element)
-            }
-        }
-        .frame(width: 24, height: 20)
-        .animation(DroppyAnimation.hoverQuick, value: isVisible)
+        RoundedRectangle(cornerRadius: DroppyRadius.small, style: .continuous)
+            .fill(AdaptiveColors.notchSurfacePrimaryText.opacity(isHovering ? 0.12 : 0))
+            .padding(.leading, -DroppySpacing.xsm)
+            .animation(DroppyAnimation.hoverQuick, value: isHovering)
+            .allowsHitTesting(false)
     }
 }
 
@@ -482,10 +757,12 @@ private struct TaskBlock: View {
     @State private var isHovering = false
 
     var body: some View {
+        let target = ConfirmTarget.task(task.id)
+        let isConfirming = droplet.confirming == target
         VStack(spacing: 0) {
             HStack(spacing: DroppySpacing.sm) {
                 Button {
-                    droplet.toggleExpanded(task.id)
+                    if isConfirming { droplet.cancelConfirmation() } else { droplet.toggleExpanded(task.id) }
                 } label: {
                     HStack(spacing: 0) {
                         DisclosureChevron(isOpen: isOpen, isRevealed: task.isExpandable && (isOpen || isHovering))
@@ -497,15 +774,16 @@ private struct TaskBlock: View {
                                 RoundedRectangle(cornerRadius: 26 * DroppyRadius.appIconCornerRatio, style: .continuous)
                                     .fill(AdaptiveColors.notchSurfaceCardFill)
                             )
+                            .jiggle(isConfirming)
                             .padding(.trailing, DroppySpacing.sm)
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(alignment: .firstTextBaseline, spacing: DroppySpacing.xs) {
                                 Text(verbatim: task.name)
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
+                                    .foregroundStyle(isConfirming ? KillteeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
-                                if let age = task.age {
+                                if let age = task.age, !isConfirming {
                                     Text(verbatim: age)
                                         .font(.system(size: 11))
                                         .monospacedDigit()
@@ -513,45 +791,61 @@ private struct TaskBlock: View {
                                 }
                             }
                             HStack(spacing: DroppySpacing.xsm) {
-                                Text(verbatim: task.subtitle)
+                                Text(verbatim: isConfirming ? droplet.killNote(for: target) : task.subtitle)
                                     .font(.system(size: 11))
                                     .monospacedDigit()
                                     .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
                                     .lineLimit(1)
-                                ForEach(task.badges, id: \.self) { Tag(text: $0) }
+                                    .contentTransition(.interpolate)
+                                if !isConfirming {
+                                    ForEach(task.badges, id: \.self) { Tag(text: $0) }
+                                }
                             }
                         }
                         Spacer(minLength: DroppySpacing.sm)
-                        Text(verbatim: Bytes.text(task.memory))
-                            .font(.system(size: 12, weight: .medium))
-                            .monospacedDigit()
-                            .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
-                            .contentTransition(.numericText())
+                        if !isConfirming {
+                            Text(verbatim: Bytes.text(task.memory))
+                                .font(.system(size: 12, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                                .contentTransition(.numericText())
+                                .transition(.opacity)
+                        }
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(task.name), \(task.subtitle)")
+                .accessibilityLabel("\(task.name), \(isConfirming ? droplet.killNote(for: target) : task.subtitle)")
 
-                CloseOrStatus(
+                KillControls(
+                    size: 24,
                     status: droplet.working[task.id],
-                    help: task.category == .terminal ? "End every \(task.name) session" : "Stop \(task.name)"
-                ) {
-                    droplet.requestClose(.task(task.id))
-                }
+                    isConfirming: isConfirming,
+                    help: task.category == .terminal ? "End every \(task.name) session" : "Stop \(task.name)",
+                    ask: { droplet.requestClose(target) },
+                    confirm: { droplet.confirmClose() },
+                    cancel: { droplet.cancelConfirmation() }
+                )
             }
             .frame(height: KillteeDroplet.groupRowHeight)
+            .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
 
             if isOpen {
-                VStack(spacing: 0) {
+                VStack(spacing: KillteeDroplet.childRowSpacing) {
                     ForEach(Array(task.items.enumerated()), id: \.element.id) { index, item in
+                        let child = ConfirmTarget.item(task: task.id, item: item.id)
                         TaskItemRow(
                             item: item,
+                            role: task.role(of: item),
                             isFirst: index == 0,
                             isLast: index == task.items.count - 1,
-                            isBusy: droplet.working[item.id] != nil,
-                            onClose: { droplet.requestClose(.item(task: task.id, item: item.id)) }
+                            status: droplet.working[item.id],
+                            isConfirming: droplet.confirming == child,
+                            ask: { droplet.requestClose(child) },
+                            confirm: { droplet.confirmClose() },
+                            cancel: { droplet.cancelConfirmation() }
                         )
+                        .transition(.evaporate)
                     }
                 }
                 .padding(.top, KillteeDroplet.blockChildrenGap)
@@ -569,50 +863,81 @@ private struct TaskBlock: View {
 /// One session of a tool, or one kind of process of a server.
 private struct TaskItemRow: View {
     let item: TaskItem
+    /// What the row is, in a line: its tooltip.
+    let role: String
     var isFirst = false
     var isLast = false
-    let isBusy: Bool
-    let onClose: () -> Void
+    let status: String?
+    let isConfirming: Bool
+    let ask: () -> Void
+    let confirm: () -> Void
+    let cancel: () -> Void
 
     @State private var isHovering = false
 
-    var body: some View {
+    /// The icon and the title.
+    private var head: some View {
         HStack(spacing: DroppySpacing.sm) {
-            TreeBranch(isFirst: isFirst, isLast: isLast)
-                .padding(.trailing, -DroppySpacing.sm)
             Image(systemName: item.symbol)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
                 .frame(width: childSymbolWidth, alignment: .leading)
-            HStack(alignment: .firstTextBaseline, spacing: DroppySpacing.xsm) {
-                Text(verbatim: item.title)
-                    .font(.system(size: 12))
-                    .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if !item.detail.isEmpty {
-                    Text(verbatim: item.detail)
-                        .font(.system(size: 11, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                .jiggle(isConfirming)
+            Text(verbatim: item.title)
+                .font(.system(size: 12))
+                .foregroundStyle(isConfirming ? KillteeDroplet.closeTint : AdaptiveColors.notchSurfacePrimaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            TreeBranch(isFirst: isFirst, isLast: isLast)
+            HStack(spacing: DroppySpacing.sm) {
+                HStack(alignment: .firstTextBaseline, spacing: DroppySpacing.xsm) {
+                    head
+                    if !item.detail.isEmpty {
+                        Text(verbatim: item.detail)
+                            .font(.system(size: 11, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
+                    }
+                    if let age = item.age {
+                        Text(verbatim: age)
+                            .font(.system(size: 11))
+                            .monospacedDigit()
+                            .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                    }
                 }
-                if let age = item.age {
-                    Text(verbatim: age)
+                Spacer(minLength: DroppySpacing.sm)
+                if !isConfirming {
+                    Text(verbatim: Bytes.text(item.memory))
                         .font(.system(size: 11))
                         .monospacedDigit()
                         .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                        .transition(.opacity)
                 }
+                KillControls(
+                    size: 20,
+                    isQuiet: true,
+                    isVisible: isHovering,
+                    status: status,
+                    isConfirming: isConfirming,
+                    help: "End \(item.title)",
+                    ask: ask,
+                    confirm: confirm,
+                    cancel: cancel
+                )
             }
-            Spacer(minLength: DroppySpacing.sm)
-            Text(verbatim: Bytes.text(item.memory))
-                .font(.system(size: 11))
-                .monospacedDigit()
-                .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-            RowCloseSlot(isVisible: isHovering, isBusy: isBusy, help: "End \(item.title)", action: onClose)
+            .frame(height: KillteeDroplet.processRowHeight)
+            .hoverTip(role, isHovering: isHovering && !isConfirming)
+            .background { ChildRowSurface(isHovering: isHovering) }
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isConfirming)
         }
         .frame(height: KillteeDroplet.processRowHeight)
-        .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
     }
 }
 
@@ -629,7 +954,7 @@ private struct Tag: View {
     }
 }
 
-/// A vendor or a service KillTee keeps closed, with the way back.
+/// A vendor or a service K*llTree keeps closed, with the way back.
 private struct ClosedRow: View {
     @ObservedObject var droplet: KillteeDroplet
     let closed: ClosedGroup
@@ -646,15 +971,10 @@ private struct ClosedRow: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
                     .lineLimit(1)
-                HStack(spacing: DroppySpacing.xsm) {
-                    Text(verbatim: "Closed \(ago)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-                        .lineLimit(1)
-                    if closed.reclosed > 0 {
-                        Tag(text: "Held off \(closed.reclosed)")
-                    }
-                }
+                Text(verbatim: "Closed \(ago)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
+                    .lineLimit(1)
             }
             Spacer(minLength: DroppySpacing.sm)
             Button { droplet.restore(closed.id) } label: {
@@ -671,175 +991,6 @@ private struct ClosedRow: View {
     }
 }
 
-// MARK: - Confirm
-
-private struct ConfirmScreen: View {
-    @ObservedObject var droplet: KillteeDroplet
-    let target: ConfirmTarget
-
-    private struct Copy {
-        var icon: String?
-        var symbol = "xmark.circle"
-        var title: String
-        var note: String
-        var action = "Close all"
-    }
-
-    private var copy: Copy {
-        switch target {
-        case .group(let id):
-            guard let group = droplet.group(id) else { return Copy(title: "Close it completely?", note: "") }
-            let quitsOnly = !group.hasBackground && group.jobs.isEmpty
-        return Copy(
-            icon: group.iconPath,
-            title: quitsOnly ? "Quit \(group.name)?" : title(of: group),
-            note: note(of: group),
-            action: quitsOnly ? "Quit" : (group.closableProcesses.isEmpty ? "Turn off" : "Close all")
-        )
-        case .task(let id):
-            guard let task = droplet.task(id) else { return Copy(title: "Close it?", note: "") }
-            if task.category == .terminal {
-                let sessions = task.items.count
-                return Copy(
-                    symbol: "terminal",
-                    title: "End every \(task.name) session?",
-                    note: "\(sessions) session\(sessions == 1 ? "" : "s") in the terminal end now; what they had not saved is lost. If KillTee's own conversation runs in one of them, it ends too.",
-                    action: "End all"
-                )
-            }
-            return Copy(
-                symbol: task.symbol,
-                title: "Stop \(task.name)?",
-                note: task.job != nil
-                    ? "Its launchd job is taken out so it stays stopped. Restore starts it again."
-                    : "\(task.processes.count) process\(task.processes.count == 1 ? "" : "es") end. Nothing starts \(task.processes.count == 1 ? "it" : "them") again.",
-                action: "Stop"
-            )
-        case let .item(taskID, itemID):
-            guard let task = droplet.task(taskID), let item = task.items.first(where: { $0.id == itemID }) else {
-                return Copy(title: "End it?", note: "")
-            }
-            let isSession = task.category == .terminal
-            return Copy(
-                symbol: item.symbol,
-                title: isSession ? "End \(task.name) in \(item.title)?" : "End \(item.title)?",
-                note: isSession
-                    ? "This session ends now; what it had not saved is lost."
-                    : (task.job?.keepAlive == true
-                        ? "launchd may start it again; stop the whole service to keep it stopped."
-                        : "\(item.count) process\(item.count == 1 ? "" : "es") and their children end."),
-                action: "End"
-            )
-        case let .cluster(groupID, clusterID):
-            guard let group = droplet.group(groupID),
-                  let cluster = ProcessCluster.clusters(of: group.processes).first(where: { $0.id == clusterID }) else {
-                return Copy(title: "End it?", note: "")
-            }
-            return Copy(
-                icon: group.iconPath,
-                title: "End \(cluster.first.name)\(cluster.count > 1 ? " ×\(cluster.count)" : "")?",
-                note: cluster.first.keepAlive
-                    ? "It restarts itself: launchd starts it again at once. Close \(group.name) as a whole to keep it closed."
-                    : "Only this; the rest of \(group.name) keeps running.",
-                action: "End"
-            )
-        }
-    }
-
-    private func title(of group: AppGroup) -> String {
-        group.closableProcesses.isEmpty ? "Turn off \(group.name) at login?" : "Close \(group.name) completely?"
-    }
-
-    private func note(of group: AppGroup) -> String {
-        if !group.hasBackground, group.jobs.isEmpty {
-            return "\(group.name) quits the normal way; if it has unsaved work, it asks first."
-        }
-        if group.closableProcesses.isEmpty {
-            let jobs = group.startupJobs.count
-            return "\(jobs) launchd job\(jobs == 1 ? "" : "s") stop starting at login" + reopenLine(group)
-        }
-        let background = group.backgroundProcesses.count
-        var subject: [String] = []
-        if group.isAppRunning { subject.append(group.runningApps.joined(separator: ", ")) }
-        if background > 0 { subject.append("\(background) background process\(background == 1 ? "" : "es")") }
-        var line = subject.isEmpty ? "" : subject.joined(separator: " and ") + ". "
-        line += "Nothing of it starts again" + reopenLine(group)
-        if group.isShared {
-            line += " Every \(group.organization ?? "vendor") app uses these."
-        }
-        if group.privilegedCount > 0 {
-            let count = group.privilegedCount
-            line += droplet.includesSystem
-                ? " \(count) system service\(count == 1 ? "" : "s") will ask for your password."
-                : " \(count) system service\(count == 1 ? "" : "s") stay\(count == 1 ? "s" : "") on."
-        }
-        return line
-    }
-
-    private func reopenLine(_ group: AppGroup) -> String {
-        guard droplet.autoRestore else { return " until you restore it." }
-        return group.isShared
-            ? " until you open one of \(group.organization ?? "its") apps."
-            : " until you open \(group.name)."
-    }
-
-    var body: some View {
-        let copy = copy
-        VStack(spacing: DroppySpacing.md) {
-            Spacer(minLength: 0)
-            if let icon = copy.icon {
-                AppIcon(path: icon, size: 34)
-            } else {
-                Image(systemName: copy.symbol)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(KillteeDroplet.closeTint)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        RoundedRectangle(cornerRadius: 34 * DroppyRadius.appIconCornerRatio, style: .continuous)
-                            .fill(AdaptiveColors.notchSurfaceCardFill)
-                    )
-            }
-            VStack(spacing: DroppySpacing.xs) {
-                Text(verbatim: copy.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(verbatim: copy.note)
-                    .font(.system(size: 11))
-                    .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-                    .lineLimit(3)
-                    .frame(maxWidth: 360)
-            }
-            .multilineTextAlignment(.center)
-            HStack(spacing: DroppySpacing.sm) {
-                Button { droplet.cancelConfirmation() } label: {
-                    Text("Cancel")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, DroppySpacing.lg)
-                        .frame(height: KillteeDroplet.navHeight)
-                }
-                .buttonStyle(DroppyGlassButtonStyle())
-                .keyboardShortcut(.cancelAction)
-                Button { droplet.confirmClose() } label: {
-                    Text(verbatim: copy.action)
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, DroppySpacing.lg)
-                        .frame(height: KillteeDroplet.navHeight)
-                }
-                .buttonStyle(DroppyGlassButtonStyle(fill: .tinted(KillteeDroplet.closeTint)))
-                .keyboardShortcut(.defaultAction)
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Paired
-
-/// Paired: the memory held in the background, and the heaviest vendor with
-/// its close disc.
 private struct PairedView: View {
     @ObservedObject var droplet: KillteeDroplet
 
@@ -850,7 +1001,7 @@ private struct PairedView: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(KillteeDroplet.closeTint)
-                Text("KillTee")
+                Text("K*llTree")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
             }
@@ -1009,3 +1160,4 @@ enum EasedFade {
         }
     }
 }
+

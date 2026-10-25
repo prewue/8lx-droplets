@@ -29,18 +29,17 @@ struct LensTuning: Equatable, Sendable {
     /// instead of cutting the picture: nothing inside it is bent, everything
     /// round it is, and `feather` softens the inner edge of that ring.
     var invertMask = false
-    /// The rim: UIKit's own highlight, a key light and a fill light opposite
-    /// it shining on the capsule's edge (`CASDFKeyFillHighlightEffect`, read
-    /// off a live `_UILiquidLensView`; these defaults are its values).
-    /// Strength of each light.
-    var rimAmount = 0.5
-    /// Where the key light comes from, degrees; the fill is opposite.
-    var rimAngle = 0.0
-    /// How far round the edge each light reaches, degrees.
-    var rimSpread = 80.0
-    /// How thick the lit edge is.
-    var rimHeight = 1.0
-    var rimCurvature = 0.75
+    /// The rim: a thin line round the lens, lit the way UIKit's lifted lens
+    /// is (`CASDFKeyFillHighlightEffect`, a key light and a fill light
+    /// opposite it): brightest along the top and the bottom, fading towards
+    /// the rounded ends. Drawn as a plain line, not that effect: its distance
+    /// field trails the lens by a frame, which showed as a second outline
+    /// while the lens landed.
+    var rimWidth = 1.0
+    /// How bright the line is along the top, along the bottom, and at the ends.
+    var rimTop = 0.55
+    var rimBottom = 0.4
+    var rimEnds = 0.08
     var rimOpacity = 1.0
 
     static let standard = LensTuning()
@@ -72,17 +71,14 @@ struct LensTuning: Equatable, Sendable {
 /// never bends more than its size allows. The rim stays on the chosen tab
 /// throughout, lifted or not: it is the capsule's glass edge.
 ///
-/// The rim is UIKit's own too: a `CASDFLayer` lit by a key and a fill light
-/// (`CASDFKeyFillHighlightEffect`) through UIKit's `vibrantColorMatrix`, so
-/// it brightens where the edge turns towards a light and fades where it
-/// turns away, rather than an even line round the shape.
+/// The rim follows UIKit's too, lit along the top and the bottom and dim at
+/// the ends, as a gradient through a stroked capsule (see `rimTop`).
 ///
 /// Private Core Animation classes, looked up at run time: on a system
-/// without one the view stays clear and the lens is only the glass under it,
-/// with a thin line for a rim.
+/// without one the view draws only the rim, over the glass under it.
 final class LensWarpNSView: NSView {
     /// Room around the lens, so the bend near the edge samples real pixels
-    /// and nothing at the rim is cut off. The lens is the bounds inset by it.
+    /// and nothing at the rim is cut off.
     static let margin: CGFloat = 40
 
     private struct Channel {
@@ -94,20 +90,26 @@ final class LensWarpNSView: NSView {
     }
 
     private var channels: [Channel] = []
+    /// The lens and the room round it: the only part of the view that draws.
+    /// It moves with the lens; the view itself covers the whole tab bar and
+    /// never moves, so the lens is placed in the same frame as the glass
+    /// under it rather than by an animated view frame of its own.
+    private let stage = CALayer()
+    /// The lens, in the view's coordinates, top-left origin like SwiftUI's.
+    private var lens: CGRect = .zero
     /// Holds the three channels, so they combine before the mask cuts them.
     private let group = CALayer()
     private let mask = CALayer()
     private let cut = CALayer()
-    /// The lit rim, or a plain line where the highlight effect is missing.
-    private var rim: CALayer?
-    private var rimShape: CALayer?
-    private let line = CAShapeLayer()
+    /// The rim: a vertical gradient seen through a stroked capsule.
+    private let rim = CAGradientLayer()
+    private let rimLine = CAShapeLayer()
     private var tuning = LensTuning.standard
     /// The capsule's size at rest, the size the effects start from.
     private var restSize: CGSize = .zero
     /// Whether the lens bends what is under it: only while it is held.
     private var bends = false
-    private var laidOut: CGRect = .zero
+    private var laidOut: (bounds: CGRect, lens: CGRect) = (.zero, .zero)
     /// The zone the bend fields were last given, so they are only replaced
     /// when it moves.
     private var appliedZone = -1.0
@@ -121,9 +123,10 @@ final class LensWarpNSView: NSView {
 
     override func makeBackingLayer() -> CALayer { CALayer() }
 
-    func update(tuning: LensTuning, restSize: CGSize, bends: Bool) {
-        if channels.isEmpty { build() }
-        let changed = tuning != self.tuning || restSize != self.restSize || bends != self.bends
+    func update(tuning: LensTuning, restSize: CGSize, bends: Bool, lens: CGRect) {
+        if !isBuilt { build() }
+        let changed = tuning != self.tuning || restSize != self.restSize || bends != self.bends || lens != self.lens
+        self.lens = lens
         let shapeChanged = tuning != self.tuning
         self.tuning = tuning
         self.restSize = restSize
@@ -134,17 +137,21 @@ final class LensWarpNSView: NSView {
 
     override func layout() {
         super.layout()
-        if channels.isEmpty { build() }
+        if !isBuilt { build() }
         layoutChannels(force: false)
     }
 
     /// Moving and resizing only re-frames the layers: rebuilding them every
     /// frame of an animation made the lens flicker.
     private func layoutChannels(force: Bool) {
-        guard force || bounds != laidOut else { return }
-        laidOut = bounds
+        guard force || bounds != laidOut.bounds || self.lens != laidOut.lens else { return }
+        laidOut = (bounds, self.lens)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // The stage round the lens, in layer coordinates (bottom-left origin).
+        let area = self.lens.insetBy(dx: -Self.margin, dy: -Self.margin)
+        stage.frame = CGRect(x: area.minX, y: bounds.height - area.maxY, width: area.width, height: area.height)
+        let bounds = stage.bounds
         let lens = bounds.insetBy(dx: Self.margin, dy: Self.margin)
         let bend = lens.insetBy(dx: -tuning.bendWidth / 2, dy: -tuning.bendHeight / 2)
         let progress = bends ? lift(of: lens.size) : 0
@@ -166,12 +173,12 @@ final class LensWarpNSView: NSView {
             channel.hole.frame = shape
             channel.hole.cornerRadius = shape.height / 2 * tuning.corner
         }
-        rim?.frame = bounds
-        rimShape?.frame = lens
-        rimShape?.cornerRadius = lens.height / 2
-        line.frame = bounds
-        let edge = lens.insetBy(dx: 0.4, dy: 0.4)
-        line.path = CGPath(roundedRect: edge, cornerWidth: edge.height / 2, cornerHeight: edge.height / 2, transform: nil)
+        rim.frame = lens
+        rimLine.frame = rim.bounds
+        let inset = tuning.rimWidth / 2
+        let edge = rim.bounds.insetBy(dx: inset, dy: inset)
+        rimLine.path = CGPath(roundedRect: edge, cornerWidth: edge.height / 2, cornerHeight: edge.height / 2, transform: nil)
+        rimLine.lineWidth = tuning.rimWidth
         applyStrength(progress: progress)
         CATransaction.commit()
     }
@@ -186,11 +193,27 @@ final class LensWarpNSView: NSView {
         return min(max(progress, 0), 1)
     }
 
+    private var isBuilt = false
+
     private func build() {
-        guard let root = layer,
-              let backdropClass = NSClassFromString("CABackdropLayer") as? CALayer.Type,
+        guard let root = layer else { return }
+        isBuilt = true
+        // The rim first: it draws on every system.
+        rimLine.fillColor = nil
+        rimLine.strokeColor = NSColor.black.cgColor
+        rim.mask = rimLine
+        // Layer coordinates run up: the top of the lens is at y = 1.
+        rim.startPoint = CGPoint(x: 0.5, y: 1)
+        rim.endPoint = CGPoint(x: 0.5, y: 0)
+        rim.locations = [0, 0.32, 0.68, 1]
+        root.addSublayer(stage)
+        stage.addSublayer(rim)
+        guard let backdropClass = NSClassFromString("CABackdropLayer") as? CALayer.Type,
               let fieldClass = NSClassFromString("CASDFLayer") as? CALayer.Type,
-              let elementClass = NSClassFromString("CASDFElementLayer") as? CALayer.Type else { return }
+              let elementClass = NSClassFromString("CASDFElementLayer") as? CALayer.Type else {
+            applyShape()
+            return
+        }
         var built: [Channel] = []
         for index in 0..<3 {
             guard let bend = Self.filter("displacementMap"),
@@ -228,38 +251,10 @@ final class LensWarpNSView: NSView {
         mask.addSublayer(cut)
         group.mask = mask
         for channel in built { group.addSublayer(channel.backdrop) }
-        root.addSublayer(group)
-        if NSClassFromString("CASDFKeyFillHighlightEffect") != nil {
-            let rim = fieldClass.init()
-            let shape = elementClass.init()
-            shape.cornerCurve = .continuous
-            rim.addSublayer(shape)
-            if let vibrant = Self.filter("vibrantColorMatrix") {
-                // UIKit's matrix for the highlight: a touch more saturation.
-                var matrix: [Float] = [1.1202, -0.1894, -0.019, 0, 0.1471,
-                                       -0.0563, 0.9871, -0.0191, 0, 0.1471,
-                                       -0.0563, -0.1893, 1.1574, 0, 0.1471,
-                                       0, 0, 0, 1, 0]
-                let value = matrix.withUnsafeMutableBytes {
-                    NSValue(bytes: $0.baseAddress!, objCType: "{CAColorMatrix=ffffffffffffffffffff}")
-                }
-                vibrant.setValue(value, forKey: "inputColorMatrix")
-                vibrant.setValue(1.2, forKey: "inputClamp")
-                rim.filters = [vibrant]
-            }
-            root.addSublayer(rim)
-            self.rim = rim
-            rimShape = shape
-        } else {
-            line.fillColor = nil
-            line.strokeColor = NSColor(white: 1, alpha: 0.29).cgColor
-            line.lineWidth = 0.8
-            root.addSublayer(line)
-            rim = line
-        }
+        stage.insertSublayer(group, below: rim)
         channels = built
         applyShape()
-        laidOut = .zero
+        laidOut = (.zero, .zero)
         needsLayout = true
     }
 
@@ -267,22 +262,8 @@ final class LensWarpNSView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         appliedZone = -1
-        if rimShape != nil, let light = Self.make("CASDFKeyFillHighlightEffect") {
-            let white = NSColor.white.cgColor
-            let spread = tuning.rimSpread * .pi / 180
-            let angle = tuning.rimAngle * .pi / 180
-            let values: [String: Any] = [
-                "keyColor": white, "fillColor": white,
-                "keyAngle": angle, "fillAngle": angle + .pi,
-                "keySpread": spread, "fillSpread": spread,
-                "keyAmount": tuning.rimAmount, "fillAmount": tuning.rimAmount,
-                "keyHeight": tuning.rimHeight, "fillHeight": tuning.rimHeight,
-                "diffuseHeightScale": 8.0, "diffuseAmountScale": 0.15, "diffuseSpreadScale": 0.65,
-                "curvature": tuning.rimCurvature
-            ]
-            for (key, value) in values { light.setValue(value, forKey: key) }
-            rim?.setValue(light, forKey: "effect")
-        }
+        rim.colors = [tuning.rimTop, tuning.rimEnds, tuning.rimEnds, tuning.rimBottom]
+            .map { NSColor(white: 1, alpha: $0).cgColor }
         for channel in channels {
             if tuning.invertMask {
                 if channel.hole.superlayer == nil { channel.field.addSublayer(channel.hole) }
@@ -314,7 +295,7 @@ final class LensWarpNSView: NSView {
         let spread = tuning.spread
         // The zone keeps its share of the lens as the lens grows and shrinks.
         let lifted = restSize.height * tuning.liftY
-        let zone = max(1, lifted > 0 ? tuning.zone * Double((bounds.height - Self.margin * 2) / lifted) : tuning.zone)
+        let zone = max(1, lifted > 0 ? tuning.zone * Double(lens.height / lifted) : tuning.zone)
         if abs(zone - appliedZone) > 0.05 {
             appliedZone = zone
             for channel in channels {
@@ -328,7 +309,7 @@ final class LensWarpNSView: NSView {
             let bend = amount * (1 + (Double(index) - 1) * spread / 100)
             channel.backdrop.setValue(bend, forKeyPath: "filters.bend.inputAmount")
         }
-        rim?.opacity = Float(tuning.rimOpacity)
+        rim.opacity = Float(tuning.rimOpacity)
     }
 
     private static func make(_ name: String) -> NSObject? {
@@ -343,18 +324,40 @@ final class LensWarpNSView: NSView {
     }
 }
 
-/// The lens refraction in SwiftUI. Give it the lens's frame grown by
-/// `LensWarpNSView.margin` on every side.
-struct LensWarp: NSViewRepresentable {
+/// The lens refraction in SwiftUI, laid over the whole tab bar and reaching
+/// `LensWarpNSView.margin` past it on every side. `lens` is the lens's frame
+/// in the bar's own coordinates, animated: every frame of the lens's
+/// animation hands the view the same frame the glass under it is drawn at.
+struct LensWarp: View, Animatable {
+    var lens: CGRect
     var tuning: LensTuning = .standard
     /// The capsule's resting size; the bend scales from it to the lifted size.
     var restSize: CGSize
     /// Bend what is under the lens: only while the pointer holds it.
     var bends: Bool
 
+    nonisolated var animatableData: CGRect.AnimatableData {
+        get { lens.animatableData }
+        set { lens.animatableData = newValue }
+    }
+
+    var body: some View {
+        let margin = LensWarpNSView.margin
+        LensWarpView(lens: lens.offsetBy(dx: margin, dy: margin), tuning: tuning, restSize: restSize, bends: bends)
+            .padding(-margin)
+            .allowsHitTesting(false)
+    }
+}
+
+private struct LensWarpView: NSViewRepresentable {
+    let lens: CGRect
+    let tuning: LensTuning
+    let restSize: CGSize
+    let bends: Bool
+
     func makeNSView(context: Context) -> LensWarpNSView { LensWarpNSView(frame: .zero) }
 
     func updateNSView(_ view: LensWarpNSView, context: Context) {
-        view.update(tuning: tuning, restSize: restSize, bends: bends)
+        view.update(tuning: tuning, restSize: restSize, bends: bends, lens: lens)
     }
 }

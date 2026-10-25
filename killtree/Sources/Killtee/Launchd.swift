@@ -40,7 +40,7 @@ struct LaunchJob: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// Everything launchd knows that KillTee needs: the job plists on disk and
+/// Everything launchd knows that K*llTree needs: the job plists on disk and
 /// which of the user's jobs are loaded, with their pids.
 struct LaunchCatalog: Sendable {
     var jobs: [LaunchJob] = []

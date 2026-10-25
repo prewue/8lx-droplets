@@ -31,7 +31,7 @@ struct TaskGroup: Identifiable, Sendable {
     /// Where it comes from, as badges: "Homebrew".
     var badges: [String] = []
     let symbol: String
-    let items: [TaskItem]
+    var items: [TaskItem]
     /// The launchd job that runs it (a Homebrew service): stopped first, so
     /// launchd does not start it again, and given back by Restore.
     let job: LaunchJob?
@@ -40,6 +40,16 @@ struct TaskGroup: Identifiable, Sendable {
 
     var memory: UInt64 { items.reduce(0) { $0 + $1.memory } }
     var isExpandable: Bool { items.count > 1 }
+
+    /// A child row's tooltip: what the session or process is, in a line.
+    func role(of item: TaskItem) -> String {
+        if category == .terminal {
+            return "A \(name) session. Ending it stops the tool; the terminal tab stays."
+        }
+        return item.symbol == "play.circle"
+            ? "The server's main process."
+            : "Started by the server to do part of its work."
+    }
     var processes: [pid_t: String] {
         items.reduce(into: [:]) { result, item in result.merge(item.processes) { first, _ in first } }
     }

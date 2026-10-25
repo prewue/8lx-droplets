@@ -1,13 +1,13 @@
 import Foundation
 
-/// A job KillTee stopped, and whether launchd had it loaded at the time:
+/// A job K*llTree stopped, and whether launchd had it loaded at the time:
 /// only those are loaded again on the way back.
 struct StoppedJob: Codable, Sendable, Hashable {
     let job: LaunchJob
     let wasLoaded: Bool
 }
 
-/// A vendor KillTee closed and keeps closed until one of its apps opens.
+/// A vendor K*llTree closed and keeps closed until one of its apps opens.
 struct ClosedGroup: Codable, Sendable, Identifiable {
     let id: String
     let name: String
@@ -43,7 +43,7 @@ struct JournalEntry: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
-/// What KillTee keeps on disk: the closed vendors, so a Droppy relaunch keeps
+/// What K*llTree keeps on disk: the closed vendors, so a Droppy relaunch keeps
 /// guarding them and can still bring them back, and a short journal.
 struct KillteeState: Codable, Sendable {
     var closed: [ClosedGroup] = []

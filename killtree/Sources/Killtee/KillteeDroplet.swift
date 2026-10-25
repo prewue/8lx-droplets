@@ -20,10 +20,9 @@ public final class KillteePrincipal: NSObject, DropletPrincipal {
 public enum KillteeScreen: Equatable {
     case welcome
     case category(Category)
-    case confirm(ConfirmTarget)
 }
 
-/// What the confirmation screen is about to close.
+/// What a row asks to be confirmed before it is closed.
 public enum ConfirmTarget: Equatable {
     /// An app or a vendor's services.
     case group(String)
@@ -35,7 +34,7 @@ public enum ConfirmTarget: Equatable {
     case cluster(group: String, cluster: String)
 }
 
-/// KillTee: an app's whole family of processes, closed in one go and kept
+/// K*llTree: an app's whole family of processes, closed in one go and kept
 /// closed until the app is opened again.
 @MainActor
 public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
@@ -58,6 +57,15 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
     /// Vendors being closed or brought back right now, with what is happening.
     @Published private(set) var working: [String: String] = [:]
     @Published private(set) var hasScanned = false
+    /// The refresh button: spinning while a scan the person asked for runs,
+    /// done once that scan has really finished.
+    @Published private(set) var refreshPhase: RefreshPhase = .idle
+    /// The row whose close button was pressed once: it shows Kill and a way
+    /// back until either is chosen.
+    @Published private(set) var confirming: ConfirmTarget?
+    /// When something was last ended here: the rescan after it takes the
+    /// ended rows out, and takes them out animated.
+    private var endedAt = Date.distantPast
 
     let scanner = ProcessScanner()
     private var installed: [InstalledApp] = []
@@ -68,7 +76,15 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
     private var visibleWidgets = 0
-    private var isDemo = false
+    /// Showing the made-up Mac from `DemoData`: the harness always, Droppy
+    /// Playground when its settings say so. Nothing real is scanned, closed
+    /// or saved.
+    private(set) var isDemo = false
+    /// Demo servers closed with a launchd job, kept to come back on Restore.
+    private var demoStash: [String: TaskGroup] = [:]
+    /// Scans started so far, and the one the refresh button waits for.
+    private var scansStarted = 0
+    private var refreshAwaits: Int?
 
     /// Background processes the guard sent SIGTERM, to follow up with SIGKILL.
     private var terminating: [pid_t: (path: String, at: Date)] = [:]
@@ -87,30 +103,62 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
         static let includesSystem = "includesSystem"
         static let showsAll = "showsAll"
         static let showsHUD = "showsHUD"
+        static let demoData = "demoData"
     }
 
     // MARK: Lifecycle
 
     public func activate(host: DropletHost) throws {
         self.host = host
-        isDemo = host.environment.isHarness
         screen = hasSeenWelcome ? .category(.apps) : .welcome
-        if isDemo {
-            groups = DemoData.groups
-            hidden = DemoData.hidden
-            tasks = DemoData.tasks
-            state = DemoData.state
-            hasScanned = true
+        if host.environment.isHarness {
+            loadDemo()
             // The shots show the list with one vendor open; the welcome
-            // screen was checked on its own.
-            // The harness opens on Apps; KILLTEE_DEMO_SCREEN picks another
-            // list, for its shots.
+            // screen was checked on its own. The harness opens on Apps;
+            // KILLTEE_DEMO_SCREEN picks another list, for its shots.
             let requested = ProcessInfo.processInfo.environment["KILLTEE_DEMO_SCREEN"].flatMap(Category.init(rawValue:))
             screen = .category(requested ?? .apps)
-            expanded = ["terminal|Claude Code", "server|3457", "JQ525L2MZD|shared"]
-            host.log.info("KillTee activated with demo data")
+            host.log.info("K*llTree activated with demo data")
             return
         }
+        if offersDemo, preference(Keys.demoData, default: false) {
+            loadDemo()
+            host.log.info("K*llTree activated with demo data, from its settings")
+            return
+        }
+        startLive()
+    }
+
+    /// Droppy Playground and the harness offer the made-up Mac, for trying
+    /// the interface; Droppy itself never does.
+    var offersDemo: Bool {
+        host?.environment.isHarness == true || Bundle.main.bundleIdentifier == "iordv.DroppyPlayground"
+    }
+
+    /// The made-up Mac, as it starts: a static list that never rescans.
+    private func loadDemo() {
+        stopLive()
+        isDemo = true
+        groups = DemoData.groups
+        hidden = DemoData.hidden
+        tasks = DemoData.tasks
+        state = DemoData.state
+        demoStash = [:]
+        working = [:]
+        hasScanned = true
+        expanded = ["terminal|Claude Code", "server|3457", "JQ525L2MZD|shared"]
+        publishLayoutChange()
+    }
+
+    /// The real Mac: its saved state, scanned now and every few seconds.
+    private func startLive() {
+        isDemo = false
+        groups = []
+        hidden = []
+        tasks = []
+        working = [:]
+        expanded = []
+        hasScanned = false
         state = KillteeState.load(from: stateURL)
 
         let center = NSWorkspace.shared.notificationCenter
@@ -123,16 +171,33 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
             MainActor.assumeIsolated { self?.tick() }
         }
         refresh()
-        host.log.info("KillTee activated, \(state.closed.count) closed")
+        host?.log.info("K*llTree activated, \(state.closed.count) closed")
     }
 
-    public func deactivate() {
+    private func stopLive() {
         timer?.invalidate()
         timer = nil
         let center = NSWorkspace.shared.notificationCenter
         observers.forEach(center.removeObserver)
         observers = []
+    }
+
+    public func deactivate() {
+        stopLive()
         host = nil
+    }
+
+    /// Switches between the made-up Mac and the real one.
+    func setDemo(_ on: Bool) {
+        host?.preferences.setValue(on, forKey: Keys.demoData)
+        if on { loadDemo() } else { startLive() }
+        objectWillChange.send()
+    }
+
+    /// Back to the made-up Mac as it was before anything was closed.
+    func resetDemo() {
+        guard isDemo else { return }
+        loadDemo()
     }
 
     private var stateURL: URL {
@@ -148,7 +213,7 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
     // MARK: Scanning
 
     /// Scans while someone looks at the widget, and while there is a closed
-    /// vendor to guard. Otherwise KillTee costs nothing.
+    /// vendor to guard. Otherwise K*llTree costs nothing.
     private func tick() {
         guard visibleWidgets > 0 || !state.closed.isEmpty else { return }
         refresh()
@@ -161,6 +226,8 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
 
     func widgetDisappeared() {
         visibleWidgets = max(0, visibleWidgets - 1)
+        // Nothing waits to be confirmed on a shelf that is closed.
+        confirming = nil
     }
 
     public func refresh() {
@@ -170,6 +237,8 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
             return
         }
         isScanning = true
+        scansStarted += 1
+        let scan = scansStarted
         let scanner = scanner
         let running = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy != .prohibited }
@@ -209,22 +278,69 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
                     self.installed = apps
                     self.installedReadAt = Date()
                 }
-                self.apply(result)
+                self.apply(result, scan: scan)
             }
         }
     }
 
-    private func apply(_ result: ScanResult) {
-        groups = result.groups
-        hidden = result.hidden
-        tasks = result.tasks
+    private func apply(_ result: ScanResult, scan: Int) {
+        withAnimation(Date().timeIntervalSince(endedAt) < 6 ? DroppyAnimation.state : nil) {
+            groups = result.groups
+            hidden = result.hidden
+            tasks = result.tasks
+        }
         hasScanned = true
         isScanning = false
+        if let awaited = refreshAwaits, scan >= awaited {
+            refreshAwaits = nil
+            finishRefresh()
+        }
         guardClosed()
         publishLayoutChange()
         if rescanRequested {
             rescanRequested = false
             refresh()
+        }
+    }
+
+    /// The refresh button. It spins for at least a moment, so an instant scan
+    /// still reads as one, and shows success only once a scan started after
+    /// the press has really finished; one that never comes back gives up.
+    func refreshByHand() {
+        guard refreshPhase == .idle else { return }
+        refreshPhase = .working
+        refreshStartedAt = Date()
+        if isDemo {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(450))
+                self.finishRefresh()
+            }
+            return
+        }
+        // The scan running now saw the list before the press: wait for the next.
+        refreshAwaits = scansStarted + 1
+        refresh()
+        let awaited = refreshAwaits
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(10))
+            guard self.refreshPhase == .working, self.refreshAwaits == awaited else { return }
+            self.refreshAwaits = nil
+            self.refreshPhase = .idle
+        }
+    }
+
+    private var refreshStartedAt = Date.distantPast
+
+    private func finishRefresh() {
+        let shortest = 0.7
+        let waited = Date().timeIntervalSince(refreshStartedAt)
+        Task { @MainActor in
+            if waited < shortest { try? await Task.sleep(for: .seconds(shortest - waited)) }
+            guard self.refreshPhase == .working else { return }
+            self.host?.feedback.play(.success)
+            self.refreshPhase = .done
+            try? await Task.sleep(for: .seconds(1.2))
+            self.refreshPhase = .idle
         }
     }
 
@@ -260,19 +376,57 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
     var closedApps: [ClosedGroup] { state.closed.filter { !$0.id.hasPrefix("server|") } }
 
     public func requestClose(_ id: String) {
-        guard working[id] == nil else { return }
-        show(.confirm(.group(id)))
+        requestClose(.group(id))
     }
 
+    /// The first press of a close button: the row asks to be confirmed.
     func requestClose(_ target: ConfirmTarget) {
-        show(.confirm(target))
+        guard working[workingID(of: target)] == nil else { return }
+        host?.feedback.play(.tick)
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { confirming = target }
     }
 
-    public func cancelConfirmation() { show(.category(lastCategory)) }
+    public func cancelConfirmation() {
+        guard confirming != nil else { return }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { confirming = nil }
+    }
+
+    /// The key under which `working` follows a target while it closes.
+    private func workingID(of target: ConfirmTarget) -> String {
+        switch target {
+        case .group(let id), .task(let id): return id
+        case .item(_, let item): return item
+        case let .cluster(group, cluster): return "\(group)#\(cluster)"
+        }
+    }
+
+    /// What confirming would end, for the row's subtitle while it asks.
+    func killNote(for target: ConfirmTarget) -> String {
+        let count: Int
+        switch target {
+        case .group(let id):
+            guard let group = group(id) else { return "" }
+            count = group.closableProcesses.count
+            if count == 0, !group.jobs.isEmpty {
+                return "\(group.jobs.count) launchd job\(group.jobs.count == 1 ? "" : "s") will be turned off"
+            }
+        case .task(let id):
+            count = task(id)?.processes.count ?? 0
+        case let .item(taskID, itemID):
+            count = task(taskID)?.items.first { $0.id == itemID }?.processes.count ?? 0
+        case let .cluster(groupID, clusterID):
+            count = group(groupID).flatMap { group in
+                ProcessCluster.clusters(of: group.processes).first { $0.id == clusterID }
+            }?.entries.filter { !$0.isPrivileged }.count ?? 0
+        }
+        return "\(count) process\(count == 1 ? "" : "es") will be killed"
+    }
 
     public func confirmClose() {
-        guard case .confirm(let target) = screen else { return }
-        show(.category(lastCategory))
+        guard let target = confirming else { return }
+        host?.feedback.play(.tick)
+        endedAt = Date()
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { confirming = nil }
         switch target {
         case .group(let id): close(id)
         case .task(let id): closeTask(id)
@@ -300,7 +454,13 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
                     return Closer.end(targets)
                 }.value
             }
-            self.working[id] = nil
+            withAnimation(DroppyAnimation.state) {
+                self.working[id] = nil
+                if self.isDemo {
+                    if job != nil { self.demoStash[id] = task }
+                    self.tasks.removeAll { $0.id == id }
+                }
+            }
             if let job {
                 self.state.closed.removeAll { $0.id == id }
                 self.state.closed.append(ClosedGroup(
@@ -347,7 +507,10 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
             } else {
                 killed = await Task.detached(priority: .userInitiated) { Closer.end(targets) }.value
             }
-            self.working[busyID] = nil
+            withAnimation(DroppyAnimation.state) {
+                self.working[busyID] = nil
+                if self.isDemo { self.removeFromDemo(Set(targets.keys)) }
+            }
             self.record(.closed, "\(name): \(killed) process\(killed == 1 ? "" : "es") ended.")
             self.save()
             self.host?.feedback.play(.success)
@@ -401,22 +564,28 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
     }
 
     private func finishClose(_ group: AppGroup, stoppedJobs: [StoppedJob], killed: Int, adminRefused: Bool) {
-        working[group.id] = nil
         let freed = group.processes.filter { $0.kind != .system }.reduce(0) { $0 + $1.memory }
-        state.closed.removeAll { $0.id == group.id }
-        // An app with nothing in the background and no jobs only quit: there
-        // is nothing to keep closed.
-        if !stoppedJobs.isEmpty || group.hasBackground {
-            state.closed.append(ClosedGroup(
-                id: group.id,
-                name: group.name,
-                iconPath: group.iconPath,
-                jobs: stoppedJobs,
-                persisted: persistsAcrossRestart,
-                closedAt: Date(),
-                processCount: killed,
-                freedMemory: freed
-            ))
+        withAnimation(DroppyAnimation.state) {
+            working[group.id] = nil
+            state.closed.removeAll { $0.id == group.id }
+            // An app with nothing in the background and no jobs only quit:
+            // there is nothing to keep closed.
+            if !stoppedJobs.isEmpty || group.hasBackground {
+                state.closed.append(ClosedGroup(
+                    id: group.id,
+                    name: group.name,
+                    iconPath: group.iconPath,
+                    jobs: stoppedJobs,
+                    persisted: persistsAcrossRestart,
+                    closedAt: Date(),
+                    processCount: killed,
+                    freedMemory: freed
+                ))
+            }
+            if isDemo, stoppedJobs.isEmpty, !group.hasBackground {
+                // Only quit: on a real Mac the next scan drops it.
+                groups.removeAll { $0.id == group.id }
+            }
         }
         var line = group.isIdle || group.closableProcesses.isEmpty
             ? "\(group.name): \(stoppedJobs.count) job\(stoppedJobs.count == 1 ? "" : "s") turned off."
@@ -472,7 +641,7 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
                 reclosedAt[process.path] = times
                 if times.count > 6 {
                     givenUp.insert(process.path)
-                    record(.refused, "\(process.name) keeps coming back, something outside launchd starts it. KillTee stopped closing it.")
+                    record(.refused, "\(process.name) keeps coming back, something outside launchd starts it. K*llTree stopped closing it.")
                     continue
                 }
                 kill(process.pid, SIGTERM)
@@ -495,13 +664,27 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
         givenUp = givenUp.filter { path in !(group(id)?.processes.contains { $0.path == path } ?? false) }
         record(.restored, "\(closed.name) is back\(reason.map { ", \($0)" } ?? "").")
         save()
-        if !isDemo {
+        if isDemo {
+            if let task = demoStash.removeValue(forKey: id) { tasks.append(task) }
+        } else {
             let jobs = closed.jobs
             Task.detached(priority: .userInitiated) { Closer.start(jobs) }
         }
         presentStrip(symbol: "arrow.uturn.backward.circle.fill", tint: AdaptiveColors.notchSurfaceSecondaryText, title: closed.name, detail: "Back")
         publishLayoutChange()
         refresh()
+    }
+
+    /// Takes ended processes out of the made-up Mac, as a rescan would.
+    private func removeFromDemo(_ pids: Set<pid_t>) {
+        for index in groups.indices {
+            groups[index].processes.removeAll { pids.contains($0.pid) }
+        }
+        for index in tasks.indices {
+            tasks[index].items.removeAll { item in Set(item.processes.keys).isSubset(of: pids) }
+        }
+        tasks.removeAll { $0.items.isEmpty }
+        publishLayoutChange()
     }
 
     public func restoreAll() {
@@ -549,6 +732,7 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
 
     func show(_ target: KillteeScreen) {
         guard screen != target else { return }
+        confirming = nil
         if case .category(let category) = target { lastCategory = category }
         screen = target
         publishLayoutChange()
@@ -578,6 +762,11 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
         guard group(id)?.isExpandable ?? task(id)?.isExpandable ?? false else { return }
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
         publishLayoutChange()
+    }
+
+    /// The tick a tip makes as it comes up.
+    func tipAppeared() {
+        host?.feedback.play(.tick)
     }
 
     public func openSettings() {
@@ -623,6 +812,9 @@ public final class KillteeDroplet: NSObject, ObservableObject, Droplet {
     var includesSystemBinding: Binding<Bool> { binding(Keys.includesSystem, default: false) }
     var showsAllBinding: Binding<Bool> { binding(Keys.showsAll, default: false) { self.publishLayoutChange() } }
     var showsHUDBinding: Binding<Bool> { binding(Keys.showsHUD, default: true) }
+    var demoBinding: Binding<Bool> {
+        Binding(get: { self.isDemo }, set: { self.setDemo($0) })
+    }
 }
 
 // MARK: - Shelf widget
@@ -643,24 +835,30 @@ extension KillteeDroplet: ShelfWidgetProviding {
     /// from this, so the widget is always exactly as tall as its rows.
     func rows(for category: Category) -> [ListRow] {
         var rows: [ListRow] = []
+        // What is kept closed comes first, while there is any.
         switch category {
         case .apps:
-            for group in visibleGroups {
-                let children = group.isExpandable && expanded.contains(group.id) ? ProcessCluster.clusters(of: group.processes) : nil
-                rows.append(.group(group, children: children))
-            }
             let closed = closedApps
+            let groups = visibleGroups
             if !closed.isEmpty {
                 rows.append(.section(.closed, count: closed.count, memory: 0))
                 rows += closed.map(ListRow.closed)
+                // The rest gets a heading of its own once something sits above it.
+                if !groups.isEmpty { rows.append(.section(.running, count: groups.count, memory: 0)) }
+            }
+            for group in groups {
+                let children = group.isExpandable && expanded.contains(group.id) ? ProcessCluster.clusters(of: group.processes) : nil
+                rows.append(.group(group, children: children))
             }
         case .terminal, .servers:
-            for task in tasks(in: category) {
-                rows.append(.task(task, isOpen: task.isExpandable && expanded.contains(task.id)))
-            }
+            let running = tasks(in: category)
             if category == .servers, !stoppedServers.isEmpty {
                 rows.append(.section(.stopped, count: stoppedServers.count, memory: 0))
                 rows += stoppedServers.map(ListRow.closed)
+                if !running.isEmpty { rows.append(.section(.running, count: running.count, memory: 0)) }
+            }
+            for task in running {
+                rows.append(.task(task, isOpen: task.isExpandable && expanded.contains(task.id)))
             }
         }
         return rows
@@ -670,8 +868,12 @@ extension KillteeDroplet: ShelfWidgetProviding {
     /// bottom inset.
     nonisolated static func blockHeight(children: Int?) -> CGFloat {
         guard let children else { return groupRowHeight }
-        return groupRowHeight + blockChildrenGap + CGFloat(children) * processRowHeight + blockBottomInset
+        return groupRowHeight + blockChildrenGap + CGFloat(children) * processRowHeight
+            + CGFloat(max(children - 1, 0)) * childRowSpacing + blockBottomInset
     }
+
+    /// Between an open block's child rows.
+    nonisolated static let childRowSpacing: CGFloat = DroppySpacing.xs
 
     /// Air inside an open block: between the header and its children, and
     /// under the last child.
@@ -692,8 +894,6 @@ extension KillteeDroplet: ShelfWidgetProviding {
             return Self.hostInsets + Self.welcomeHeight
         case .category(let category):
             return Self.hostInsets + Self.navHeight + DroppySpacing.md + listHeight(for: category)
-        case .confirm:
-            return Self.hostInsets + Self.navHeight + DroppySpacing.md + max(listHeight(for: lastCategory), 150)
         }
     }
 
@@ -709,7 +909,7 @@ extension KillteeDroplet: ShelfWidgetProviding {
         [
             ShelfWidgetDescriptor(
                 id: Self.widgetID,
-                title: "KillTee",
+                title: "K*llTree",
                 systemImage: "xmark.circle.fill",
                 layoutTraits: layoutTraits,
                 searchKeywords: ["process", "quit", "kill", "background", "helper", "adobe", "launchd", "memory"]

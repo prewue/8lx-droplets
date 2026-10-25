@@ -10,12 +10,12 @@ struct WelcomeScreen: View {
             WelcomeEmblem()
                 .frame(width: 300, height: 64)
 
-            Text("Welcome to KillTee")
+            Text("Welcome to K*llTree")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
                 .padding(.top, DroppySpacing.smd)
 
-            Text("Quitting an app leaves its helpers behind. KillTee closes the whole family and keeps it closed until you open the app again.")
+            Text("Quitting an app leaves its helpers behind. K*llTree closes the whole family and keeps it closed until you open the app again.")
                 .font(.system(size: 13))
                 .lineSpacing(5)
                 .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
@@ -92,7 +92,7 @@ private struct OrbitPill: View {
     }
 }
 
-/// The KillTee mark: a cross in a red disc on the dark tile, with a ring
+/// The K*llTree mark: a cross in a red disc on the dark tile, with a ring
 /// that breathes, the way a process tree collapses into one.
 struct KillteeLogo: View {
     let size: CGFloat

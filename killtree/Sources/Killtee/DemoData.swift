@@ -1,13 +1,21 @@
 import Foundation
 
-/// What the harness shows: a Mac with Adobe, Figma and Microsoft leftovers.
-/// Nothing here touches a real process.
+/// A made-up Mac for the harness and for Droppy Playground's demo setting:
+/// open apps, helpers left behind by closed ones, a vendor's shared
+/// services, things kept closed, terminal tools and servers. It never
+/// changes on its own, and nothing here touches a real process.
 enum DemoData {
     private static func job(_ label: String, keepAlive: Bool, runAtLoad: Bool = true) -> LaunchJob {
         LaunchJob(label: label, plistPath: nil, domain: .user, program: nil, keepAlive: keepAlive, runAtLoad: runAtLoad, associatedBundleIDs: [])
     }
 
-    private static let adobe = Evidence.signed(organization: "Adobe", team: "JQ525L2MZD", verified: true)
+    private static func signed(_ organization: String, _ team: String) -> Evidence {
+        .signed(organization: organization, team: team, verified: true)
+    }
+
+    private static let adobe = signed("Adobe", "JQ525L2MZD")
+    private static let google = signed("Google", "EQHXZ8M8AV")
+    private static let logitech = signed("Logitech", "QED4VVPZWA")
 
     private static func process(
         _ pid: pid_t,
@@ -17,12 +25,14 @@ enum DemoData {
         label: String? = nil,
         keepAlive: Bool = false,
         privileged: Bool = false,
+        menuBar: Bool = false,
         evidence: [Evidence] = [],
         confidence: Confidence = .high
     ) -> ProcessEntry {
         var reasons = evidence
         if let label { reasons.append(.launchdJob(label: label, keepAlive: keepAlive, runAtLoad: true)) }
         if privileged { reasons.append(.runsAs(user: "root")) }
+        if menuBar { reasons.append(.menuBar) }
         return ProcessEntry(
             pid: pid,
             name: name,
@@ -32,12 +42,67 @@ enum DemoData {
             label: label,
             keepAlive: keepAlive,
             isPrivileged: privileged,
+            isMenuBar: menuBar,
             evidence: reasons,
             confidence: confidence
         )
     }
 
     static let groups: [AppGroup] = [
+        // Open apps, the top of the list.
+        AppGroup(
+            id: "EQHXZ8M8AV|/Applications/Google Chrome.app",
+            teamID: "EQHXZ8M8AV",
+            name: "Google Chrome",
+            organization: "Google",
+            iconPath: "/Applications/Google Chrome.app",
+            appPath: "/Applications/Google Chrome.app",
+            runningApps: ["Google Chrome"],
+            processes: [
+                process(801, "Google Chrome", 486, .app, evidence: [google]),
+                process(802, "Google Chrome Helper (Renderer)", 212, .bundled, evidence: [google, .insideBundle(app: "Google Chrome")]),
+                process(803, "Google Chrome Helper (Renderer)", 188, .bundled, evidence: [google, .insideBundle(app: "Google Chrome")]),
+                process(804, "Google Chrome Helper (Renderer)", 164, .bundled, evidence: [google, .insideBundle(app: "Google Chrome")]),
+                process(805, "Google Chrome Helper (Renderer)", 97, .bundled, evidence: [google, .insideBundle(app: "Google Chrome")]),
+                process(806, "Google Chrome Helper (GPU)", 236, .bundled, evidence: [google, .insideBundle(app: "Google Chrome")]),
+                process(807, "Google Chrome Helper", 42, .bundled, evidence: [google, .insideBundle(app: "Google Chrome")]),
+                process(808, "chrome_crashpad_handler", 6, .helper, evidence: [google, .startedBy("Google Chrome")]),
+                process(809, "GoogleUpdater", 18, .agent, label: "com.google.GoogleUpdater.wake", keepAlive: false, evidence: [google])
+            ],
+            jobs: [job("com.google.GoogleUpdater.wake", keepAlive: false)],
+            loadedLabels: ["com.google.GoogleUpdater.wake"]
+        ),
+        AppGroup(
+            id: "UBF8T346G9|/Applications/Microsoft Word.app",
+            teamID: "UBF8T346G9",
+            name: "Microsoft Word",
+            organization: "Microsoft",
+            iconPath: "/Applications/Microsoft Word.app",
+            appPath: "/Applications/Microsoft Word.app",
+            runningApps: ["Microsoft Word"],
+            processes: [
+                process(921, "Microsoft Word", 412, .app),
+                process(923, "Microsoft Word Helper", 22, .bundled, evidence: [.insideBundle(app: "Microsoft Word")]),
+                process(924, "Microsoft AutoUpdate", 31, .agent, label: "com.microsoft.update.agent", keepAlive: true, evidence: [signed("Microsoft", "UBF8T346G9")])
+            ],
+            jobs: [job("com.microsoft.update.agent", keepAlive: true)],
+            loadedLabels: ["com.microsoft.update.agent"]
+        ),
+        AppGroup(
+            id: "8VBZ3948LU|/Applications/Droppy Playground.app",
+            teamID: "8VBZ3948LU",
+            name: "Droppy Playground",
+            organization: "Droppy",
+            iconPath: "/Applications/Droppy Playground.app",
+            appPath: "/Applications/Droppy Playground.app",
+            runningApps: ["Droppy Playground"],
+            processes: [process(990, "Droppy Playground", 180, .app)],
+            jobs: [],
+            loadedLabels: [],
+            isHost: true
+        ),
+
+        // Left behind: the app is closed, these kept running.
         AppGroup(
             id: "JQ525L2MZD|shared",
             teamID: "JQ525L2MZD",
@@ -60,6 +125,22 @@ enum DemoData {
             loadedLabels: ["com.adobe.ccxprocess", "com.adobe.CoreSync"]
         ),
         AppGroup(
+            id: "QED4VVPZWA|/Applications/logioptionsplus.app",
+            teamID: "QED4VVPZWA",
+            name: "Logi Options+",
+            organization: "Logitech",
+            iconPath: "/Applications/logioptionsplus.app",
+            appPath: "/Applications/logioptionsplus.app",
+            runningApps: [],
+            processes: [
+                process(941, "logioptionsplus_agent", 118, .agent, label: "com.logi.optionsplus", keepAlive: true, evidence: [logitech]),
+                process(942, "Logi Options+ Driver Installer", 0, .agent, privileged: true, evidence: [logitech]),
+                process(943, "logioptionsplus_updater", 24, .helper, evidence: [logitech, .startedBy("logioptionsplus_agent")])
+            ],
+            jobs: [job("com.logi.optionsplus", keepAlive: true)],
+            loadedLabels: ["com.logi.optionsplus"]
+        ),
+        AppGroup(
             id: "T8RA8NE3B7|/Applications/Figma.app",
             teamID: "T8RA8NE3B7",
             name: "Figma",
@@ -69,25 +150,10 @@ enum DemoData {
             runningApps: [],
             processes: [
                 process(911, "FigmaAgent", 84, .agent, evidence: [
-                    .signed(organization: "Figma", team: "T8RA8NE3B7", verified: true),
+                    signed("Figma", "T8RA8NE3B7"),
                     .pathMentions(app: "Figma"),
                     .vendorsOnlyApp("Figma")
                 ])
-            ],
-            jobs: [],
-            loadedLabels: []
-        ),
-        AppGroup(
-            id: "UBF8T346G9|/Applications/Microsoft Word.app",
-            teamID: "UBF8T346G9",
-            name: "Microsoft Word",
-            organization: "Microsoft",
-            iconPath: "/Applications/Microsoft Word.app",
-            appPath: "/Applications/Microsoft Word.app",
-            runningApps: ["Microsoft Word"],
-            processes: [
-                process(921, "Microsoft Word", 412, .app),
-                process(923, "Microsoft Word Helper", 22, .helper, evidence: [.insideBundle(app: "Microsoft Word")])
             ],
             jobs: [],
             loadedLabels: []
@@ -154,6 +220,20 @@ enum DemoData {
             help: "Codex"
         ),
         TaskGroup(
+            id: "terminal|Neovim",
+            category: .terminal,
+            name: "Neovim",
+            subtitle: "2 sessions",
+            symbol: "terminal",
+            items: [
+                item("s5", "shop-api", age: "3h", 48, pids: [3101, 3102]),
+                item("s6", "dotfiles", age: "1d", 31, pids: [3110])
+            ],
+            job: nil,
+            ports: [],
+            help: "Neovim, running in 2 terminal sessions."
+        ),
+        TaskGroup(
             id: "server|3457",
             category: .servers,
             name: "npm run dev",
@@ -169,6 +249,21 @@ enum DemoData {
             help: "$ npm run dev"
         ),
         TaskGroup(
+            id: "server|4120",
+            category: .servers,
+            name: "python manage.py runserver",
+            age: "25m",
+            subtitle: "shop-api:8000",
+            symbol: "network",
+            items: [
+                item("p4", "python:8000", 86, pids: [4120], symbol: "play.circle"),
+                item("p5", "python", 64, pids: [4133], symbol: "arrow.turn.down.right")
+            ],
+            job: nil,
+            ports: [8000],
+            help: "$ python manage.py runserver"
+        ),
+        TaskGroup(
             id: "server|sh.brew.postgresql@18",
             category: .servers,
             name: "postgresql@18",
@@ -180,6 +275,18 @@ enum DemoData {
             job: job("sh.brew.postgresql@18", keepAlive: true),
             ports: [5432],
             help: "$ postgres -D /opt/homebrew/var/postgresql@18"
+        ),
+        TaskGroup(
+            id: "server|5530",
+            category: .servers,
+            name: "caffeinate -dims",
+            age: "4h",
+            subtitle: "Started by Terminal",
+            symbol: "gearshape.2",
+            items: [item("p6", "caffeinate", 1, pids: [5530], symbol: "play.circle")],
+            job: nil,
+            ports: [],
+            help: "$ caffeinate -dims"
         )
     ]
 
@@ -195,11 +302,33 @@ enum DemoData {
                 processCount: 3,
                 freedMemory: 140 * 1_048_576,
                 reclosed: 2
+            ),
+            ClosedGroup(
+                id: "9BNSXJN65R|/Applications/Docker.app",
+                name: "Docker",
+                iconPath: "/Applications/Docker.app",
+                jobs: [],
+                persisted: true,
+                closedAt: Date().addingTimeInterval(-3 * 3600),
+                processCount: 7,
+                freedMemory: 1_900 * 1_048_576
+            ),
+            ClosedGroup(
+                id: "server|homebrew.mxcl.redis",
+                name: "redis",
+                iconPath: nil,
+                jobs: [StoppedJob(job: job("homebrew.mxcl.redis", keepAlive: true), wasLoaded: true)],
+                persisted: true,
+                closedAt: Date().addingTimeInterval(-50 * 60),
+                processCount: 1,
+                freedMemory: 12 * 1_048_576
             )
         ],
         journal: [
             JournalEntry(date: Date().addingTimeInterval(-60), kind: .reclosed, text: "ZoomAutoUpdater started again and was closed again."),
-            JournalEntry(date: Date().addingTimeInterval(-25 * 60), kind: .closed, text: "Zoom: 3 processes closed, 2 jobs stopped.")
+            JournalEntry(date: Date().addingTimeInterval(-25 * 60), kind: .closed, text: "Zoom: 3 processes closed, 2 jobs stopped."),
+            JournalEntry(date: Date().addingTimeInterval(-50 * 60), kind: .closed, text: "redis: 1 process ended, launchd job stopped."),
+            JournalEntry(date: Date().addingTimeInterval(-3 * 3600), kind: .closed, text: "Docker: 7 processes closed, 1 job stopped.")
         ]
     )
 }
