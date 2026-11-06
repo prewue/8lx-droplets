@@ -1,3 +1,4 @@
+import AppKit
 import DroppyKit
 import SwiftUI
 
@@ -39,7 +40,7 @@ struct WelcomeScreen: View {
     }
 }
 
-/// The turning sun with pills of what the droplet does orbiting it.
+/// The orb with pills of what the droplet does orbiting it.
 private struct WelcomeEmblem: View {
     private static let logoSize: CGFloat = 54
     private static let badges: [(text: String, tint: Color?)] = [
@@ -53,7 +54,7 @@ private struct WelcomeEmblem: View {
             let spin = time * 0.45
             ZStack {
                 pills(spin: spin, front: false)
-                BrightnesssLogo(size: Self.logoSize, rays: .degrees((time * 12).truncatingRemainder(dividingBy: 360)))
+                BrightnesssLogo(size: Self.logoSize)
                 pills(spin: spin, front: true)
             }
         }
@@ -92,13 +93,19 @@ private struct OrbitPill: View {
     }
 }
 
-/// The Brightnesss mark: a sun on the dark tile, its rays turning.
+/// The Brightnesss mark, the droplet's own: the orb on the dark tile, at the
+/// icon's own scale. The picture is a copy in `Assets/`, because the icon document
+/// is the Store's and is not there to read from in a published droplet.
 struct BrightnesssLogo: View {
     let size: CGFloat
-    var rays: Angle = .zero
 
-    /// The accent, a warm sun yellow.
-    static let accent = Color(red: 1, green: 0.73, blue: 0.2)
+    /// The accent, the orb's violet, light enough to read as text on the shelf.
+    static let accent = Color(red: 0.62, green: 0.45, blue: 1)
+
+    private static let orbScale: CGFloat = 0.78
+    private static let orb: NSImage? = Bundle(for: BrightnesssPrincipal.self)
+        .url(forResource: "Orb", withExtension: "png", subdirectory: "Assets")
+        .flatMap(NSImage.init(contentsOf:))
 
     var body: some View {
         ZStack {
@@ -107,38 +114,12 @@ struct BrightnesssLogo: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-
-            ForEach(0..<8, id: \.self) { index in
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.92))
-                    .frame(width: size * 0.07, height: size * 0.17)
-                    .offset(y: -size * 0.37)
-                    .rotationEffect(.degrees(Double(index) * 45) + rays)
+            if let orb = Self.orb {
+                Image(nsImage: orb)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: size * Self.orbScale, height: size * Self.orbScale)
             }
-
-            Circle()
-                .fill(LinearGradient(
-                    stops: [
-                        .init(color: Color(red: 1, green: 0.86, blue: 0.45), location: 0),
-                        .init(color: Self.accent, location: 0.55),
-                        .init(color: Color(red: 0.96, green: 0.55, blue: 0.12), location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ))
-                .overlay {
-                    Circle()
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [.white.opacity(0.45), .white.opacity(0.05), .white.opacity(0.15)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            lineWidth: size * 0.012
-                        )
-                }
-                .frame(width: size * 0.46, height: size * 0.46)
-                .shadow(color: Self.accent.opacity(0.45), radius: size * 0.06, y: size * 0.01)
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * DroppyRadius.appIconCornerRatio, style: .continuous))

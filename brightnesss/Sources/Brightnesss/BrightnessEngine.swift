@@ -29,6 +29,11 @@ enum BoostMath {
         return panelFloor + (1 - panelFloor) * t
     }
 
+    /// Below the lowest lit step: the backlight is off, or on its way there.
+    static func panelIsOff(_ value: Float) -> Bool {
+        value < panelFloor / 2
+    }
+
     /// The level a panel value means; 0 at the floor and below it.
     static func level(forPanel value: Float) -> Double {
         guard value > panelFloor else { return 0 }
@@ -81,6 +86,31 @@ private enum DisplayServices {
     static let canChange = symbol("DisplayServicesCanChangeBrightness", as: CanChange.self)
 }
 
+/// How often the backlight may be switched back on after something else switched
+/// it off. Two things fighting over it would otherwise strobe the whole screen,
+/// so past this it stays as it is until the fight is over.
+struct BacklightRestoreLimit {
+    static let count = 3
+    static let window: TimeInterval = 3
+    private var recent: [Date] = []
+
+    mutating func allow(at now: Date = Date()) -> Bool {
+        recent.removeAll { now.timeIntervalSince($0) >= Self.window }
+        guard recent.count < Self.count else { return false }
+        recent.append(now)
+        return true
+    }
+}
+
+/// The panel's value, read from anywhere but the main actor.
+enum PanelBrightness {
+    static func read(_ display: CGDirectDisplayID) -> Float? {
+        guard let get = DisplayServices.get else { return nil }
+        var value: Float = 0
+        return get(display, &value) == 0 ? value : nil
+    }
+}
+
 // MARK: - Engine
 
 /// One level for the built-in display, from -100 to the panel's XDR ceiling.
@@ -121,12 +151,19 @@ final class BrightnessEngine {
     private var fastPollUntil: Date?
     private var overlayRetire: Task<Void, Never>?
     private var reconfigure: Task<Void, Never>?
+    private var wake: Task<Void, Never>?
+    private var restoreLimit = BacklightRestoreLimit()
+    /// Someone is looking at the level, or the keys are watching the panel.
+    /// With neither, and nothing past the panel's range, nothing polls.
+    var isWatched = false {
+        didSet { updateHardwarePoll() }
+    }
     private let hardwareQueue = DispatchQueue(label: "brightnesss.hardware", qos: .userInteractive)
 
     var maximum: Double { BoostMath.maximum(potentialHeadroom: potentialHeadroom) }
 
     /// The backlight is off: the keys' last step took it there, not us.
-    var panelIsOff: Bool { expectedHardware.map { $0 < 0.001 } ?? false }
+    var panelIsOff: Bool { expectedHardware.map(BoostMath.panelIsOff) ?? false }
 
     var zone: BrightnessZone {
         if level < 0 { return .dim }
@@ -149,7 +186,7 @@ final class BrightnessEngine {
         }
         resolveDisplay()
         readHardware()
-        startHardwarePoll()
+        updateHardwarePoll()
         observe()
         log?("engine started on display \(displayID), hardware \(hardwareAvailable ? "available" : "unavailable"), headroom \(potentialHeadroom)")
     }
@@ -163,6 +200,8 @@ final class BrightnessEngine {
         overlayRetire = nil
         reconfigure?.cancel()
         reconfigure = nil
+        wake?.cancel()
+        wake = nil
         guard !isDryRun else { return }
         overlay.remove()
         dim.remove()
@@ -182,7 +221,7 @@ final class BrightnessEngine {
     func refresh() {
         guard !isDryRun else { return }
         refreshHeadroom()
-        hardwareDidChange()
+        Task { @MainActor [weak self] in await self?.hardwareDidChange() }
     }
 
     private func apply() {
@@ -190,6 +229,7 @@ final class BrightnessEngine {
         applyHardware()
         applyDim()
         syncOverlay()
+        updateHardwarePoll()
     }
 
     // MARK: Hardware
@@ -222,6 +262,8 @@ final class BrightnessEngine {
         guard hardwareAvailable, let set = DisplayServices.set else { return }
         let target = BoostMath.panel(for: level)
         if let expectedHardware, abs(expectedHardware - target) < 0.0005 { return }
+        // Back on from off: at most so often, or a fight would strobe the screen.
+        if let expectedHardware, BoostMath.panelIsOff(expectedHardware), !restoreLimit.allow() { return }
         writeWindow = (from: expectedHardware ?? target, to: target)
         expectedHardware = target
         let id = displayID
@@ -233,10 +275,17 @@ final class BrightnessEngine {
     /// The panel changed under us: the brightness keys, Control Center,
     /// auto-brightness. Our own writes echo here too and are told apart by
     /// the value we expect.
-    func hardwareDidChange() {
-        guard let get = DisplayServices.get else { return }
-        var value: Float = 0
-        guard get(displayID, &value) == 0 else { return }
+    func hardwareDidChange() async {
+        guard let value = await readPanel() else { return }
+        // Dimmed over a dark panel: a press the system was still gliding down
+        // took the backlight off after ours put it back. Dimming needs a lit panel.
+        if level < 0, BoostMath.panelIsOff(value) {
+            if restoreLimit.allow(), let set = DisplayServices.set {
+                let id = displayID
+                hardwareQueue.async { _ = set(id, BoostMath.panelFloor) }
+            }
+            return
+        }
         if let expectedHardware, abs(expectedHardware - value) < 0.004 {
             writeWindow = nil
             return
@@ -258,16 +307,35 @@ final class BrightnessEngine {
         headroomPoll?.cancel()
         headroomPoll = nil
         syncOverlay()
+        updateHardwarePoll()
         onExternalChange?()
     }
 
-    private func startHardwarePoll() {
-        guard hardwareAvailable, hardwarePoll == nil else { return }
+    /// A private call into another framework, so never on the main actor.
+    private func readPanel() async -> Float? {
+        let id = displayID
+        return await withCheckedContinuation { continuation in
+            hardwareQueue.async {
+                continuation.resume(returning: PanelBrightness.read(id))
+            }
+        }
+    }
+
+    /// Polls only while it can matter: the shelf is open or the keys are armed,
+    /// or an overlay is up that the panel moving would have to take down.
+    private func updateHardwarePoll() {
+        let wanted = !isDryRun && hardwareAvailable && (isWatched || level < 0 || level > 100 || overlay.isMounted)
+        guard wanted else {
+            hardwarePoll?.cancel()
+            hardwarePoll = nil
+            return
+        }
+        guard hardwarePoll == nil else { return }
         hardwarePoll = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(300))
                 guard let self, !Task.isCancelled else { return }
-                self.hardwareDidChange()
+                await self.hardwareDidChange()
             }
         }
     }
@@ -324,7 +392,10 @@ final class BrightnessEngine {
             try? await Task.sleep(for: .seconds(2))
             guard let self, !Task.isCancelled else { return }
             self.overlayRetire = nil
-            if self.level <= 100 { self.overlay.remove() }
+            if self.level <= 100 {
+                self.overlay.remove()
+                self.updateHardwarePoll()
+            }
         }
     }
 
@@ -387,12 +458,13 @@ final class BrightnessEngine {
     }
 
     private func reapplyAfterWake() {
-        Task { @MainActor [weak self] in
+        wake?.cancel()
+        wake = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(1500))
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
             self.applyDim()
             self.overlay.rerender()
-            self.hardwareDidChange()
+            await self.hardwareDidChange()
         }
     }
 }

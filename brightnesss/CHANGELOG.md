@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.1] - 2026-11-06
+
+- Fixed the sun jumping to 100% while XDR is off on battery or from heat: it is now disabled and says why.
+- Fixed the brightness keys starting up, or the dimming coming back, after the droplet was switched off.
+- Fixed a held brightness key switching the backlight off at the minimum instead of going on into dimming.
+- Fixed macOS's own brightness HUD showing when a held key crossed back into the panel's range.
+- The welcome screen now shows the droplet's own orb, in its violet.
+- Fixed the first opening beside other widgets stretching the whole row to the welcome screen's height.
+- The brightness keys now wait on a thread of their own, not on what Droppy is drawing.
+- Brightnesss now watches the panel only while the shelf is open, the keys are armed, or XDR or dimming is on.
+- In a row, the controls are larger and the dial sits on the row's bottom line.
+
 ## [1.0.0] - 2026-10-15
 
 The first release in the Store.

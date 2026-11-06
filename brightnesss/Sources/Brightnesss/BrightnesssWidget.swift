@@ -19,6 +19,13 @@ struct BrightnesssWidget: View {
         .animation(DroppyAnimation.state, value: droplet.screen)
         .padding(context.contentInsets)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // No click lands on a control still moving with the shelf.
+        .allowsHitTesting(!context.isShelfTransitioning)
+        .onAppear { if !context.isPreview { droplet.widgetAppeared(isPaired: context.isCompact) } }
+        .onDisappear { if !context.isPreview { droplet.widgetDisappeared() } }
+        .onChange(of: context.isCompact) { _, isCompact in
+            if !context.isPreview { droplet.setPaired(isCompact) }
+        }
     }
 }
 
@@ -35,10 +42,10 @@ private struct ControlScreen: View {
     @State private var pinchStart: Double?
 
     var body: some View {
-        let disc: CGFloat = compact ? 24 : BrightnesssDroplet.navHeight
+        let disc = BrightnesssDroplet.navHeight
         VStack(spacing: DroppySpacing.md) {
             HStack(spacing: DroppySpacing.sm) {
-                SunButton(droplet: droplet, size: compact ? 22 : 26)
+                SunButton(droplet: droplet, size: compact ? BrightnesssDroplet.navHeight : 26)
                 Button {
                     droplet.setLevel(100)
                 } label: {
@@ -96,6 +103,10 @@ private struct ControlScreen: View {
             .animation(DroppyAnimation.state, value: droplet.xdrBlock)
             .frame(height: disc)
 
+            // In a row the room a taller neighbour gives goes here, so the dial
+            // ends on the row's bottom line.
+            if compact { Spacer(minLength: 0) }
+
             LevelDial(
                 engine: engine,
                 minimum: BrightnessEngine.minimum,
@@ -106,7 +117,7 @@ private struct ControlScreen: View {
                 showsLabels: !compact
             )
         }
-        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: compact ? .infinity : nil, alignment: .top)
         .contentShape(Rectangle())
         .onContinuousHover { phase in
             switch phase {
@@ -157,11 +168,11 @@ private struct SunButton: View {
                 .scaleEffect(isHovering ? 1.12 : 1)
         }
         .buttonStyle(.plain)
-        .disabled(!droplet.supportsXDR)
+        .disabled(!droplet.supportsXDR || droplet.xdrBlock != nil)
         .onHover { isHovering = $0 }
         .animation(DroppyAnimation.hoverScale, value: isHovering)
         .animation(DroppyAnimation.state, value: xdr)
-        .help(xdr ? "Leave XDR" : "Go to full XDR")
+        .help(droplet.xdrBlock?.explanation ?? (xdr ? "Leave XDR" : "Go to full XDR"))
         .accessibilityLabel(xdr ? "Leave XDR" : "Go to full XDR")
     }
 }

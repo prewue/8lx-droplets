@@ -27,6 +27,14 @@ public enum XDRBlock: Equatable {
         case .heat: return "XDR off, the Mac is hot"
         }
     }
+
+    /// Why the sun does nothing right now, for its tooltip.
+    var explanation: String {
+        switch self {
+        case .battery: return "XDR is off on battery"
+        case .heat: return "XDR is off while the Mac is hot"
+        }
+    }
 }
 
 /// Brightnesss: the built-in display past 100 and below 0, from the shelf.
@@ -47,9 +55,14 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
 
     @Published public private(set) var screen: BrightnesssScreen = .control
     /// The engine's level, mirrored so the views redraw.
-    @Published public private(set) var level: Double = 100
-    @Published public private(set) var maximum: Double = 100
-    @Published public private(set) var xdrBlock: XDRBlock?
+    @Published public private(set) var level: Double = 100 { didSet { syncKeys() } }
+    @Published public private(set) var maximum: Double = 100 { didSet { syncKeys() } }
+    @Published public private(set) var xdrBlock: XDRBlock? { didSet { syncKeys() } }
+    /// Mounted beside other widgets, as far as the last mount said. The welcome
+    /// screen is solo only, and the host takes one height for both.
+    private(set) var isPaired = false
+    private var visibleWidgets = 0
+    private var accessibilityRequest: Task<Void, Never>?
 
     private let layoutSubject = PassthroughSubject<ShelfWidgetID, Never>()
 
@@ -59,6 +72,7 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
         static let xdrOffWhenHot = "xdrOffWhenHot"
         static let extendsKeys = "extendsKeys"
         static let showsHUD = "showsHUD"
+        static let isPaired = "lastMountedPaired"
     }
 
     // MARK: Lifecycle
@@ -66,10 +80,12 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
     public func activate(host: DropletHost) throws {
         self.host = host
         let dryRun = host.environment.isHarness
+        isPaired = preference(Keys.isPaired, default: false)
         engine.log = { [weak self] message in self?.host?.log.info(message) }
         engine.onExternalChange = { [weak self] in self?.engineDidChange() }
         power.onChange = { [weak self] in self?.enforceGuards(announce: true) }
-        keys.handler = { [weak self] up, fine in self?.handleBrightnessKey(up: up, fine: fine) ?? false }
+        keys.handler = { [weak self] up, fine, isOurs, from in self?.handleBrightnessKey(up: up, fine: fine, isOurs: isOurs, from: from) }
+        keys.onRelease = { [weak self] in self?.keyReleased() }
         engine.start(dryRun: dryRun)
         toggles.start(dryRun: dryRun)
         power.start(dryRun: dryRun)
@@ -83,12 +99,16 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
         }
         level = engine.level
         maximum = engine.maximum
+        syncKeys()
+        updateWatching()
         screen = hasSeenWelcome ? .control : .welcome
         enforceGuards(announce: false)
         host.log.info("Brightnesss activated at \(Int(level)), ceiling \(Int(maximum))")
     }
 
     public func deactivate() {
+        accessibilityRequest?.cancel()
+        accessibilityRequest = nil
         keys.stop()
         engine.stop()
         toggles.stop()
@@ -97,6 +117,7 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
         engine.log = nil
         power.onChange = nil
         keys.handler = nil
+        keys.onRelease = nil
         host = nil
     }
 
@@ -119,6 +140,8 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
 
     /// The sun: full XDR from anywhere at or under 100, back to 100 from XDR.
     public func toggleXDR() {
+        // Blocked, the sun is disabled; this is for whatever else calls it.
+        guard xdrBlock == nil || zone == .xdr else { return }
         setLevel(zone == .xdr ? 100 : effectiveMaximum)
     }
 
@@ -129,22 +152,72 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
 
     // MARK: Keys
 
-    /// A brightness key. Ours when it goes into or moves inside the dim and
-    /// XDR zones; the system's anywhere in the panel's own range, where macOS
-    /// moves the panel, Droppy shows its HUD and the engine follows.
-    private func handleBrightnessKey(up: Bool, fine: Bool) -> Bool {
-        let step = fine ? Self.keyStep / 4 : Self.keyStep
-        let crossesFloor = !up && level <= 0
-        let crossesCeiling = up && level >= 100 && effectiveMaximum > 100
-        guard zone != .normal || crossesFloor || crossesCeiling else {
+    /// A brightness key, after the tap has decided on its own thread. Anywhere
+    /// in the panel's range the press is the system's: macOS moves the panel,
+    /// Droppy shows its HUD and the engine follows.
+    private func handleBrightnessKey(up: Bool, fine: Bool, isOurs: Bool, from: Double?) {
+        guard isOurs else {
             // Droppy draws its own HUD for this press and waits for ours to go
             // first, so ours goes now.
             host?.hud.dismiss(id: Self.levelHUDID)
-            return false
+            return
         }
-        setLevel(level + (up ? step : -step))
+        let step = fine ? Self.keyStep / 4 : Self.keyStep
+        // Inside the panel's range ours can be a poll behind a held key; past the
+        // ends each press builds on the last, whatever the tap had read by then.
+        let base = zone == .normal ? (from ?? level) : level
+        setLevel(base + (up ? step : -step))
         presentLevelHUD()
-        return true
+    }
+
+    /// Back inside the panel's range the next press is the system's, and Droppy
+    /// holds its HUD back while ours is up, letting macOS's show. So ours goes as
+    /// the key comes up, before there can be a next press.
+    private func keyReleased() {
+        if zone == .normal { host?.hud.dismiss(id: Self.levelHUDID) }
+    }
+
+    private func syncKeys() {
+        keys.update(level: level, limit: effectiveMaximum, display: engine.displayID)
+    }
+
+    /// The panel is polled while someone looks at the level or the keys are armed.
+    private func updateWatching() {
+        engine.isWatched = visibleWidgets > 0 || keys.isArmed
+    }
+
+    // MARK: Widget
+
+    /// The view is on the shelf: the keys may have moved the panel while nobody
+    /// watched, and Droppy re-creates its own media key tap now and then, which
+    /// puts it ahead of ours. Re-arming puts ours back in front.
+    func widgetAppeared(isPaired paired: Bool) {
+        visibleWidgets += 1
+        setPaired(paired)
+        guard host?.environment.isHarness == false else { return }
+        refreshFromHardware()
+        if extendsKeys { keys.rearm() }
+        updateWatching()
+    }
+
+    func widgetDisappeared() {
+        visibleWidgets = max(0, visibleWidgets - 1)
+        updateWatching()
+    }
+
+    func setPaired(_ paired: Bool) {
+        guard isPaired != paired else { return }
+        isPaired = paired
+        host?.preferences.setValue(paired, forKey: Keys.isPaired)
+        publishLayoutChange()
+    }
+
+    /// While the settings page is open: Accessibility may just have been granted.
+    func armKeysIfAllowed() {
+        guard extendsKeys, !keys.isArmed, host?.environment.isHarness == false else { return }
+        keys.start()
+        updateWatching()
+        objectWillChange.send()
     }
 
     static let levelHUDID = "brightnesss.level"
@@ -296,6 +369,7 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
             set: { on in
                 self.host?.preferences.setValue(on, forKey: Keys.extendsKeys)
                 if on { self.keys.start() } else { self.keys.stop() }
+                self.updateWatching()
                 self.objectWillChange.send()
             }
         )
@@ -304,11 +378,14 @@ public final class BrightnesssDroplet: NSObject, ObservableObject, Droplet {
     /// Asks Droppy for Accessibility, then installs the keys tap.
     public func requestAccessibility() {
         guard let host else { return }
-        Task { @MainActor [weak self] in
+        accessibilityRequest?.cancel()
+        accessibilityRequest = Task { @MainActor [weak self] in
             let status = await host.permissions.request(.accessibility)
-            guard let self else { return }
+            // Switched off while it asked: nothing may start now.
+            guard let self, !Task.isCancelled, self.host != nil else { return }
             if status == .denied { host.permissions.openSystemSettings(for: .accessibility) }
             if self.extendsKeys { self.keys.start() }
+            self.updateWatching()
             self.objectWillChange.send()
         }
     }
@@ -383,6 +460,7 @@ extension BrightnesssDroplet: ShelfWidgetProviding {
     static let controlHeight: CGFloat = navHeight + DroppySpacing.md + LevelDial.soloHeight
 
     var widgetHeight: CGFloat {
+        if isPaired { return Self.hostInsets + Self.controlHeight }
         switch screen {
         case .welcome: return Self.hostInsets + Self.welcomeHeight
         case .control: return Self.hostInsets + Self.controlHeight
@@ -410,17 +488,7 @@ extension BrightnesssDroplet: ShelfWidgetProviding {
     }
 
     public func makeWidgetView(_ id: ShelfWidgetID, context: ShelfWidgetContext) -> AnyView {
-        if !context.isPreview, host?.environment.isHarness == false {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.refreshFromHardware()
-                // Droppy re-creates its own media key tap now and then, which
-                // puts it ahead of ours; ours has to see the press first to
-                // catch it at the ends. Re-arming puts it back in front.
-                if self.extendsKeys { self.keys.rearm() }
-            }
-        }
-        return AnyView(BrightnesssWidget(droplet: self, context: context))
+        AnyView(BrightnesssWidget(droplet: self, context: context))
     }
 
     public func makeWidgetSettingsPopover(_ id: ShelfWidgetID) -> AnyView? { nil }
@@ -461,7 +529,7 @@ private struct LevelHUDStrip: View {
                     .font(.system(size: DroppyLiveActivityMetrics.iconSize, weight: .semibold))
                     .contentTransition(.symbolEffect(.replace))
                 if model.zone != .normal {
-                    Text(verbatim: model.zone == .xdr ? "XDR" : "DIM")
+                    Text(verbatim: model.zone == .xdr ? "XDR" : "Dim")
                         .font(.system(size: DroppyLiveActivityMetrics.labelFontSize, weight: .bold, design: .rounded))
                         .transition(DroppyTransition.compactContent)
                 }

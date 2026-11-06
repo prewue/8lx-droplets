@@ -20,7 +20,7 @@ Droplets are small apps that live inside Droppy: on the notch, on the shelf unde
 
 | Droplet | What it does | Version |
 | :-- | :-- | :-: |
-| [**Brightnesss**](brightnesss) | XDR past 100% and dimming below zero, from the notch | 1.0.0 |
+| [**Brightnesss**](brightnesss) | XDR past 100% and dimming below zero, from the notch | 1.0.1 |
 | [**Freelancy**](freelancy) | Bill by the hour and watch the money tick in the notch | 1.1.0 |
 | [**Una Nota**](una-nota) | Reminders on the notch: a day, a title, a color | 1.0.0 |
 | [**K\*llTree**](killtree) | Close an app with every helper it leaves behind | 1.1.0 |
@@ -91,6 +91,7 @@ freelancy/     Freelancy
 una-nota/      Una Nota
 killtree/      K*llTree
 killtree-tests/  K*llTree's tests, outside its package: run `swift test` there
+brightnesss-tests/  Brightnesss's tests, the same way
 ```
 
 Every folder keeps its own history, carried over from the droplet's own repository.

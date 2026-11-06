@@ -13,7 +13,7 @@ struct BrightnesssSettings: View {
                 DropletSettingsCard {
                     DropletToggleRow(
                         title: "Turn off XDR on battery",
-                        subtitle: "Brightness past 100% drains the battery fast. The dial stops at 100% until the Mac is plugged in again.",
+                        subtitle: "Stops the dial at 100% until the Mac is plugged in.",
                         isOn: droplet.xdrOffOnBatteryBinding
                     )
                     DropletToggleRow(
@@ -30,7 +30,7 @@ struct BrightnesssSettings: View {
                 DropletSettingsCard {
                     DropletToggleRow(
                         title: "Keys go past the ends",
-                        subtitle: "At the minimum, brightness down keeps dimming; at the maximum, brightness up goes into XDR. Inside the panel's own range the keys work as always. Needs Accessibility for Droppy.",
+                        subtitle: "Brightness down keeps dimming at the minimum, and brightness up goes into XDR at the maximum.",
                         isOn: droplet.extendsKeysBinding
                     )
                     if droplet.extendsKeys {
@@ -45,7 +45,7 @@ struct BrightnesssSettings: View {
                     }
                     DropletToggleRow(
                         title: "Show the level on the notch",
-                        subtitle: "A strip with the level after a key press past the ends, and a word when XDR turns itself off.",
+                        subtitle: "Shows the level after a key press past the ends, and says when XDR turns itself off.",
                         isOn: droplet.showsHUDBinding
                     )
                 }
@@ -62,6 +62,14 @@ struct BrightnesssSettings: View {
                         DropletValuePill(text: droplet.engine.hardwareAvailable ? "Controlled" : "Not available")
                     }
                 }
+            }
+        }
+        // There is no notification for Accessibility being granted, so the
+        // page asks while it is open, and only then.
+        .task {
+            while !Task.isCancelled {
+                droplet.armKeysIfAllowed()
+                try? await Task.sleep(for: .seconds(3))
             }
         }
     }
