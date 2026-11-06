@@ -58,7 +58,9 @@ final class ProcessScanner: @unchecked Sendable {
         return Self.allProcesses().compactMap { pid, ppid, uid, tty, startedAt in
             // The user, root, and service accounts (Red Giant runs as
             // _mxappservice). Apple's own daemon accounts sit under 500.
-            guard pid > 1, uid == me || uid == 0 || uid >= 500 else { return nil }
+            // Someone else logged in to this Mac is neither: their processes
+            // are not ours to list or close.
+            guard pid > 1, Self.isListable(uid: uid, me: me) else { return nil }
             guard let path = Self.path(of: pid), !Self.systemPrefixes.contains(where: path.hasPrefix) else { return nil }
             return RawProcess(
                 pid: pid,
@@ -134,6 +136,16 @@ final class ProcessScanner: @unchecked Sendable {
         verdicts[key] = verdict
         lock.unlock()
         return verdict
+    }
+
+    static func isListable(uid: uid_t, me: uid_t) -> Bool {
+        if uid == me || uid == 0 { return true }
+        return uid >= 500 && isServiceAccount(named: userName(of: uid))
+    }
+
+    /// Service accounts are named with a leading underscore, or have no name.
+    static func isServiceAccount(named name: String) -> Bool {
+        name.hasPrefix("_") || name.hasPrefix("uid ")
     }
 
     static func userName(of uid: uid_t) -> String {

@@ -18,6 +18,9 @@ struct KillTreeWidget: View {
                         .transition(DroppyTransition.element)
                 case .category(let category):
                     CategoryScreen(droplet: droplet, category: category)
+                        .overlay(alignment: .bottomTrailing) {
+                            ToolsCorner(droplet: droplet, context: context)
+                        }
                         .transition(DroppyTransition.element)
                 }
             }
@@ -25,7 +28,16 @@ struct KillTreeWidget: View {
         .animation(DroppyAnimation.state, value: droplet.screen)
         .padding(context.contentInsets)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear { if !context.isPreview { droplet.widgetAppeared() } }
+        // No click lands on a control still moving with the shelf.
+        .allowsHitTesting(!context.isShelfTransitioning)
+        .onAppear {
+            guard !context.isPreview else { return }
+            droplet.setPaired(context.isCompact)
+            droplet.widgetAppeared()
+        }
+        .onChange(of: context.isCompact) { _, isCompact in
+            if !context.isPreview { droplet.setPaired(isCompact) }
+        }
         .onDisappear { if !context.isPreview { droplet.widgetDisappeared() } }
     }
 }
@@ -66,6 +78,7 @@ private struct CategoryScreen: View {
                                 RowView(droplet: droplet, row: row)
                             }
                         }
+                        .padding(.bottom, ToolsMetrics.listFooter)
                     }
                 }
             }
@@ -254,25 +267,6 @@ private struct BlockSurface: View {
     }
 }
 
-/// Droppy's glass disc, tinted red, with a red cross: the paired widget's.
-private struct CloseDisc: View {
-    let size: CGFloat
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "xmark")
-                .font(.system(size: size * 0.38, weight: .bold))
-                .foregroundStyle(KillTreeDroplet.closeTint)
-                .frame(width: size, height: size)
-        }
-        .buttonStyle(DroppyGlassButtonStyle(shape: AnyShape(Circle()), fill: .tinted(KillTreeDroplet.closeTint)))
-        .help(help)
-        .accessibilityLabel(help)
-    }
-}
-
 /// A row's way out. Droppy's red disc; pressed once, it stretches into a
 /// red Hold to Kill pill with a grey glass disc beside it to step back;
 /// held, it fills from the left and kills once full; then it shows the
@@ -359,7 +353,7 @@ private struct KillPill: View {
     private var label: String? {
         switch mode {
         case .disc: return nil
-        case .hold: return "Hold to Kill"
+        case .hold: return "Hold to kill"
         case .closing(let status): return status
         }
     }
@@ -508,7 +502,7 @@ private struct GroupBlock: View {
         let background = group.backgroundProcesses.count
         if background > 0 { return "\(background) in the background" }
         let count = group.processes.count
-        return "\(count) process\(count == 1 ? "" : "es")"
+        return Phrases.processes(count)
     }
 
     var body: some View {
@@ -991,48 +985,30 @@ private struct ClosedRow: View {
     }
 }
 
+/// Beside other widgets there is no room for the lists or for a hold, so this
+/// says so and opens K*llTree alone on the shelf.
 private struct PairedView: View {
     @ObservedObject var droplet: KillTreeDroplet
 
     var body: some View {
-        let top = droplet.visibleGroups.first
-        VStack(alignment: .leading, spacing: DroppySpacing.xs) {
-            HStack(spacing: DroppySpacing.xsm) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(KillTreeDroplet.closeTint)
-                Text("K*llTree")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AdaptiveColors.notchSurfaceSecondaryText)
-            }
-            Text(verbatim: Bytes.text(droplet.backgroundMemory))
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
-                .contentTransition(.numericText())
-            Text(verbatim: droplet.visibleGroups.isEmpty ? "Nothing in the background" : "\(droplet.visibleGroups.count) app\(droplet.visibleGroups.count == 1 ? "" : "s") in the background")
+        VStack(spacing: DroppySpacing.sm) {
+            KillWordmark(width: KillTreeDroplet.pairedWordmarkWidth)
+                .accessibilityHidden(true)
+            Text("K*llTree can only be used on its own.")
                 .font(.system(size: 11))
                 .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if let top {
-                HStack(spacing: DroppySpacing.sm) {
-                    AppIcon(path: top.iconPath, size: 20)
-                    Text(verbatim: top.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AdaptiveColors.notchSurfacePrimaryText)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    if droplet.working[top.id] != nil {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        CloseDisc(size: 22, help: "Close \(top.name) completely") { droplet.close(top.id) }
-                    }
-                }
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button { droplet.openAlone() } label: {
+                Text("Open K*llTree")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, DroppySpacing.md)
+                    .frame(height: KillTreeDroplet.pairedButtonHeight)
+                    .contentShape(Capsule(style: .continuous))
             }
+            .buttonStyle(DroppyGlassButtonStyle())
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .animation(DroppyAnimation.state, value: droplet.backgroundMemory)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

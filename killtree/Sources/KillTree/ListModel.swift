@@ -14,7 +14,7 @@ enum ListSection: String, Sendable {
 
     var help: String {
         switch self {
-        case .closed: return "Closed by K*llTree. Anything of them that starts again is closed again until you open the app."
+        case .closed: return "Closed by K*llTree. Restore lets them start again."
         case .stopped: return "Services K*llTree took out of launchd. Restore loads them again."
         case .running: return "Everything still running, under what is kept closed."
         }
@@ -133,7 +133,7 @@ struct ProcessCluster: Identifiable, Sendable {
         if first.kind == .system { return "Closing leaves it: macOS would start it again at once." }
         if first.isPrivileged { return "Closing needs “Also stop system services” and an administrator password." }
         if let label = first.label, !label.hasPrefix("application.") {
-            return "Closing takes \(label) out of launchd first, so it cannot restart, then ends it."
+            return "Closing takes \(label) out of launchd until the next login, so it cannot restart, then ends it."
         }
         if first.kind == .app { return "Closing quits it the normal way; unsaved work stops the close." }
         return "Closing ends it: SIGTERM, then SIGKILL if it has not exited after 2.5 s."
@@ -158,7 +158,7 @@ extension AppGroup {
         let startup = startupJobs.count
         if startup > 0 {
             lines.append("")
-            lines.append("\(startup) launchd job\(startup == 1 ? "" : "s") start\(startup == 1 ? "s" : "") at login: " + startupJobs.map(\.label).joined(separator: ", "))
+            lines.append(Phrases.startupJobs(startup, labels: startupJobs.map(\.label).joined(separator: ", ")))
         }
         if teamID.hasPrefix("adhoc:") {
             lines.append("")

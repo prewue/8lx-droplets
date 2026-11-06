@@ -68,10 +68,11 @@ enum TaskBuilder {
         byPID: [pid_t: RawProcess],
         jobByPID: [pid_t: String],
         jobsByLabel: [String: LaunchJob],
-        ports: [pid_t: [Int]]
+        ports: [pid_t: [Int]],
+        host: Set<pid_t> = []
     ) -> [TaskGroup] {
         let me = getuid()
-        let members = hidden.filter { $0.reason != .host && byPID[$0.pid]?.uid == me }
+        let members = hidden.filter { $0.reason != .host && !host.contains($0.pid) && byPID[$0.pid]?.uid == me }
 
         /// The terminal a process runs in, its own or its nearest ancestor's.
         func tty(of pid: pid_t) -> String? {
@@ -88,7 +89,11 @@ enum TaskBuilder {
         var terminal: [HiddenProcess] = []
         var servers: [HiddenProcess] = []
         for member in members {
-            if tty(of: member.pid) != nil { terminal.append(member) } else { servers.append(member) }
+            if tty(of: member.pid) != nil {
+                terminal.append(member)
+            } else if isServer(member, ports: ports) {
+                servers.append(member)
+            }
         }
 
         // A session owns everything under it, Apple's tools too
@@ -128,7 +133,7 @@ enum TaskBuilder {
             let title = cwd.flatMap(projectName(from:)) ?? "Session in \(ttyName)"
             let names = pids.compactMap { byPID[$0].map { BundlePath.displayName(for: $0.path) } }
             let help = [
-                "\(tool) in \(ttyName), \(pids.count) process\(pids.count == 1 ? "" : "es")",
+                "\(tool) in \(ttyName), \(Phrases.processes(pids.count))",
                 command.isEmpty ? nil : "$ " + command,
                 cwd.map { "in \($0)" },
                 "",
@@ -161,7 +166,7 @@ enum TaskBuilder {
                 items: sorted,
                 job: nil,
                 ports: [],
-                help: "\(tool), running in \(sorted.count) terminal session\(sorted.count == 1 ? "" : "s") with \(processCount) process\(processCount == 1 ? "" : "es") in all. Open it to close one session; the × closes them all."
+                help: "\(tool), running in \(Phrases.sessions(sorted.count)) with \(Phrases.processes(processCount)) in all. Open it to close one session; the × closes them all."
             ))
         }
 
@@ -171,7 +176,7 @@ enum TaskBuilder {
             guard let raw = byPID[root] else { continue }
             let pids = descendants(of: root, within: serverSet)
             let label = jobByPID[root]
-            let job = label.flatMap { jobsByLabel[$0] }
+            let job = label.flatMap { serviceJob(label: $0, program: raw.path, jobsByLabel: jobsByLabel) }
             let arguments = ProcessScanner.arguments(of: root)
             let cwd = ProcessScanner.workingDirectory(of: root)
             let treePorts = Array(Set(pids.flatMap { ports[$0] ?? [] })).sorted()
@@ -249,6 +254,27 @@ enum TaskBuilder {
         }
 
         return groups.sorted { ($1.memory, $0.name) < ($0.memory, $1.name) }
+    }
+
+    /// What belongs on the Servers list. Not what another program started,
+    /// which belongs to that program, and not an app's helper (a crash
+    /// reporter, say), unless it serves something on a port.
+    private static func isServer(_ member: HiddenProcess, ports: [pid_t: [Int]]) -> Bool {
+        if case .foreignParent = member.reason { return false }
+        let listens = !(ports[member.pid] ?? []).isEmpty
+        return listens || BundlePath.outermostApp(in: member.path) == nil
+    }
+
+    /// The launchd job behind a server. One with no plist where K*llTree looks
+    /// is still a service launchd restarts, not a loose process; `application.`
+    /// labels are how launchd tracks any open app, and are not services.
+    private static func serviceJob(label: String, program: String, jobsByLabel: [String: LaunchJob]) -> LaunchJob? {
+        if let job = jobsByLabel[label] { return job }
+        guard !label.hasPrefix("application.") else { return nil }
+        return LaunchJob(
+            label: label, plistPath: nil, domain: .user, program: program,
+            keepAlive: false, runAtLoad: false, associatedBundleIDs: []
+        )
     }
 
     /// "claude 2.1.310" → "Claude Code"; a runtime running a script is named

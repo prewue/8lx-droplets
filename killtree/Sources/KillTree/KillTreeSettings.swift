@@ -4,6 +4,7 @@ import SwiftUI
 /// The droplet's page in Droppy's Settings, from Droppy's own rows.
 struct KillTreeSettings: View {
     @ObservedObject var droplet: KillTreeDroplet
+    @ObservedObject var power: SleepControl
 
     var body: some View {
         DropletSettingsPane {
@@ -18,18 +19,30 @@ struct KillTreeSettings: View {
                     )
                     DropletToggleRow(
                         title: "Bring them back when the app opens",
-                        subtitle: "Opening any app of a closed vendor lets its background services start again. Off, they wait for Restore.",
+                        subtitle: "Opening an app of a closed vendor lets its background services start again.",
                         isOn: droplet.autoRestoreBinding
                     )
                     DropletToggleRow(
                         title: "Close again if they come back",
-                        subtitle: "Some helpers are started by other helpers, not by launchd. K*llTree closes them again while the vendor is kept closed.",
+                        subtitle: "Closes helpers that other helpers start while the vendor is kept closed.",
                         isOn: droplet.guardsBinding
                     )
                     DropletToggleRow(
                         title: "Also stop system services",
-                        subtitle: "Updaters and licensing services run as root. Stopping them asks for an administrator password each time.",
+                        subtitle: "Stopping updaters and licensing services asks for an administrator password each time.",
                         isOn: droplet.includesSystemBinding
+                    )
+                }
+            }
+
+            DropletSettingsSection {
+                settingsSectionHeader("Lid closed mode")
+            } content: {
+                DropletSettingsCard {
+                    DropletToggleRow(
+                        title: "Switch it without a password",
+                        subtitle: "Asks for your password once, to add a system rule that allows only this switch.",
+                        isOn: droplet.skipsPasswordBinding
                     )
                 }
             }
@@ -40,7 +53,7 @@ struct KillTreeSettings: View {
                 DropletSettingsCard {
                     DropletToggleRow(
                         title: "Show every app",
-                        subtitle: "Off, the list only shows apps that leave something running in the background.",
+                        subtitle: "Also lists apps that leave nothing running in the background.",
                         isOn: droplet.showsAllBinding
                     )
                     DropletToggleRow(
@@ -81,7 +94,7 @@ struct KillTreeSettings: View {
                     DropletSettingsCard {
                         DropletToggleRow(
                             title: "Demo data",
-                            subtitle: "A made-up Mac to try the list on: open apps, leftovers, terminals and servers. Closing and restoring only change the demo; nothing real is scanned, ended or saved. Only in Droppy Playground.",
+                            subtitle: "A made-up Mac to try the list on, where nothing real is scanned, ended or saved.",
                             isOn: droplet.demoBinding
                         )
                         if droplet.isDemo {
@@ -118,6 +131,8 @@ struct KillTreeSettings: View {
                 }
             }
         }
+        // The removal check reads this: it is what a person is about to act on.
+        .onAppear { droplet.power.refresh() }
     }
 }
 
@@ -136,7 +151,7 @@ private struct JournalLine: View {
         HStack(alignment: .firstTextBaseline, spacing: DroppySpacing.sm) {
             Image(systemName: entry.symbol)
                 .foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: DroppySpacing.xs) {
                 Text(verbatim: entry.text)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(entry.date, format: .relative(presentation: .named))

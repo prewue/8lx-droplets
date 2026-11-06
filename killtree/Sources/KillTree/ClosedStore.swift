@@ -5,6 +5,9 @@ import Foundation
 struct StoppedJob: Codable, Sendable, Hashable {
     let job: LaunchJob
     let wasLoaded: Bool
+    /// The person had it disabled before K*llTree came: it stays disabled on
+    /// the way back. `nil` in records from before this was kept.
+    var wasDisabled: Bool? = nil
 }
 
 /// A vendor K*llTree closed and keeps closed until one of its apps opens.
@@ -20,6 +23,9 @@ struct ClosedGroup: Codable, Sendable, Identifiable {
     let freedMemory: UInt64
     /// Background processes started again and closed again since.
     var reclosed: Int = 0
+    /// The executables closed, so Restore forgets the ones the guard gave up
+    /// on even if they are not running at that moment.
+    var paths: [String]? = nil
 }
 
 struct JournalEntry: Codable, Sendable, Identifiable, Hashable {
@@ -52,11 +58,14 @@ struct KillTreeState: Codable, Sendable {
     static let journalLimit = 40
 
     static func load(from url: URL) -> KillTreeState {
-        guard let data = try? Data(contentsOf: url),
-              let state = try? JSONDecoder().decode(KillTreeState.self, from: data) else {
-            return KillTreeState()
-        }
-        return state
+        guard let data = try? Data(contentsOf: url) else { return KillTreeState() }
+        if let state = try? JSONDecoder().decode(KillTreeState.self, from: data) { return state }
+        // Unreadable, not absent: it holds the only record of what to bring
+        // back, and the next save would overwrite it. Keep it aside.
+        let stamp = Int(Date().timeIntervalSince1970)
+        let aside = url.deletingLastPathComponent().appendingPathComponent("state.corrupt-\(stamp).json")
+        try? FileManager.default.moveItem(at: url, to: aside)
+        return KillTreeState()
     }
 
     func save(to url: URL) {

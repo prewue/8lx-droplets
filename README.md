@@ -23,7 +23,7 @@ Droplets are small apps that live inside Droppy: on the notch, on the shelf unde
 | [**Brightnesss**](brightnesss) | XDR past 100% and dimming below zero, from the notch | 1.0.0 |
 | [**Freelancy**](freelancy) | Bill by the hour and watch the money tick in the notch | 1.1.0 |
 | [**Una Nota**](una-nota) | Reminders on the notch: a day, a title, a color | 1.0.0 |
-| [**K\*llTree**](killtree) | Close an app with every helper it leaves behind | 1.0.0 |
+| [**K\*llTree**](killtree) | Close an app with every helper it leaves behind | 1.1.0 |
 
 ## Brightnesss
 
@@ -56,8 +56,9 @@ Quitting Photoshop, Figma or Zoom leaves helpers running. K\*llTree finds them a
 
 - **Grouped by developer** under the app you know, by signature, bundle, launchd jobs and parents. Open a row to see every process and what each one does.
 - **Hold to Kill.** Apps quit politely, their launchd jobs are taken out so nothing starts them again, and whatever is left is ended.
-- **Kept closed** until you open the app again, even after a restart; then everything comes back on its own.
+- **Kept closed** if you turn it on, even after a restart, until you open the app again; then everything comes back on its own.
 - **Terminals and servers.** Claude Code sessions, dev servers and Homebrew services, each closable on its own.
+- **A panel on every list.** Close leftovers on Apps, stop all on Servers; on Terminals, close all and keep the Mac awake, even with the lid closed.
 
 ## Install
 
@@ -89,6 +90,7 @@ brightnesss/   Brightnesss
 freelancy/     Freelancy
 una-nota/      Una Nota
 killtree/      K*llTree
+killtree-tests/  K*llTree's tests, outside its package: run `swift test` there
 ```
 
 Every folder keeps its own history, carried over from the droplet's own repository.

@@ -63,6 +63,11 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     /// The row whose close button was pressed once: it shows Kill and a way
     /// back until either is chosen.
     @Published private(set) var confirming: ConfirmTarget?
+    /// Mounted beside other widgets, as far as the last mount said.
+    private(set) var isPaired = false
+    /// The corner disc has opened into its panel.
+    @Published private(set) var isToolsOpen = false
+    let power = SleepControl()
     /// When something was last ended here: the rescan after it takes the
     /// ended rows out, and takes them out animated.
     private var endedAt = Date.distantPast
@@ -70,7 +75,6 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     let scanner = ProcessScanner()
     private var installed: [InstalledApp] = []
     private var installedReadAt: Date = .distantPast
-    private var excludedTeams: Set<String> = []
     private var isScanning = false
     private var rescanRequested = false
     private var timer: Timer?
@@ -91,6 +95,16 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     /// When the guard closed each path again, to notice one it cannot hold.
     private var reclosedAt: [String: [Date]] = [:]
     private var givenUp: Set<String> = []
+    /// Vendors whose Restore was refused its password: opening the app does
+    /// not ask again at every scan. The Restore button still does.
+    private var restoreRefused: Set<String> = []
+    /// Scans started before something closed saw it still running.
+    private var acceptedScan = 0
+    /// Kept past `deactivate()`: a close still running has to save its record
+    /// where the next activation will find it.
+    private var containerDirectory: URL?
+    /// Something for the next save: a guard pass that changed nothing writes nothing.
+    private var stateChanged = false
 
     private let layoutSubject = PassthroughSubject<ShelfWidgetID, Never>()
     private var lastHeight: CGFloat = 0
@@ -104,20 +118,22 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
         static let showsAll = "showsAll"
         static let showsHUD = "showsHUD"
         static let demoData = "demoData"
+        static let includesServices = "stopAllIncludesServices"
+        static let isPaired = "lastMountedPaired"
     }
 
     // MARK: Lifecycle
 
     public func activate(host: DropletHost) throws {
         self.host = host
+        containerDirectory = host.environment.containerDirectory
+        isPaired = preference(Keys.isPaired, default: false)
         screen = hasSeenWelcome ? .category(.apps) : .welcome
         if host.environment.isHarness {
             loadDemo()
             // The shots show the list with one vendor open; the welcome
-            // screen was checked on its own. The harness opens on Apps;
-            // KILLTREE_DEMO_SCREEN picks another list, for its shots.
-            let requested = ProcessInfo.processInfo.environment["KILLTREE_DEMO_SCREEN"].flatMap(Category.init(rawValue:))
-            screen = .category(requested ?? .apps)
+            // screen was checked on its own.
+            screen = .category(.apps)
             host.log.info("K*llTree activated with demo data")
             return
         }
@@ -132,13 +148,14 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     /// Droppy Playground and the harness offer the made-up Mac, for trying
     /// the interface; Droppy itself never does.
     var offersDemo: Bool {
-        host?.environment.isHarness == true || Bundle.main.bundleIdentifier == "iordv.DroppyPlayground"
+        Bundle.main.bundleIdentifier == "iordv.DroppyPlayground" || host?.environment.isHarness == true
     }
 
     /// The made-up Mac, as it starts: a static list that never rescans.
     private func loadDemo() {
         stopLive()
         isDemo = true
+        power.enterDemo()
         groups = DemoData.groups
         hidden = DemoData.hidden
         tasks = DemoData.tasks
@@ -159,19 +176,49 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
         working = [:]
         expanded = []
         hasScanned = false
-        state = KillTreeState.load(from: stateURL)
+        state = KillTreeState()
+        // Left on by an earlier run: it keeps the Mac awake with the lid
+        // closed, so it is said out loud, not only shown on the disc.
+        power.enterLive { [weak self] lidClosed in
+            guard lidClosed, let self else { return }
+            self.presentStrip(symbol: "laptopcomputer", tint: .orange, title: "Lid closed mode", detail: "On", always: true)
+        }
 
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+                MainActor.assumeIsolated { self?.tick() }
             })
         }
+        let url = stateURL
+        Task { [weak self] in
+            let saved = await BlockingWork.run { KillTreeState.load(from: url) }
+            guard let self, !self.isDemo, self.host != nil else { return }
+            self.state = saved
+            self.updateTimer()
+            self.refresh()
+            self.host?.log.info("K*llTree activated, \(saved.closed.count) closed")
+        }
+    }
+
+    /// Ticks only while there is something to scan for, and otherwise costs
+    /// nothing: not even a wake-up.
+    private func updateTimer() {
+        guard !isDemo, host != nil, needsScanning else {
+            timer?.invalidate()
+            timer = nil
+            return
+        }
+        guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        refresh()
-        host?.log.info("K*llTree activated, \(state.closed.count) closed")
+    }
+
+    /// Someone is looking at the widget, or something closed has to be watched
+    /// for: its app opening, or its helpers coming back.
+    private var needsScanning: Bool {
+        visibleWidgets > 0 || (!state.closed.isEmpty && (guardsClosed || autoRestore))
     }
 
     private func stopLive() {
@@ -184,7 +231,23 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
 
     public func deactivate() {
         stopLive()
+        power.stop()
+        Launchctl.cancelRunning()
+        isToolsOpen = false
         host = nil
+    }
+
+    /// Lid Closed Mode outlives the droplet, and nothing could turn it off
+    /// once the droplet is gone: it has to be off before the droplet goes.
+    public func prepareForRemoval() -> Bool {
+        // As last read: this cannot wait for a tool. The settings page reads it
+        // on appearing, and demo data does not hide it.
+        // So does the system rule: only K*llTree's settings can take it away.
+        guard power.systemLidClosed || power.skipsPassword else { return true }
+        let title = power.systemLidClosed ? "Turn off lid closed mode" : "Turn off the password rule"
+        presentStrip(symbol: "laptopcomputer", tint: .orange, title: title, detail: "First", always: true)
+        host?.feedback.play(.failure)
+        return false
     }
 
     /// Switches between the made-up Mac and the real one.
@@ -201,13 +264,17 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     }
 
     private var stateURL: URL {
-        (host?.environment.containerDirectory ?? FileManager.default.temporaryDirectory)
+        (containerDirectory ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("state.json")
     }
 
     private func save() {
+        stateChanged = false
+        updateTimer()
         guard !isDemo else { return }
-        state.save(to: stateURL)
+        let state = state
+        let url = stateURL
+        BlockingWork.write { state.save(to: url) }
     }
 
     // MARK: Scanning
@@ -215,23 +282,28 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     /// Scans while someone looks at the widget, and while there is a closed
     /// vendor to guard. Otherwise K*llTree costs nothing.
     private func tick() {
-        guard visibleWidgets > 0 || !state.closed.isEmpty else { return }
+        if visibleWidgets > 0 { power.refresh() }
+        guard needsScanning else { return }
         refresh()
     }
 
     func widgetAppeared() {
         visibleWidgets += 1
+        updateTimer()
+        power.refresh()
         refresh()
     }
 
     func widgetDisappeared() {
         visibleWidgets = max(0, visibleWidgets - 1)
+        updateTimer()
         // Nothing waits to be confirmed on a shelf that is closed.
         confirming = nil
+        if visibleWidgets == 0 { setToolsOpen(false, animated: false) }
     }
 
     public func refresh() {
-        guard !isDemo else { return }
+        guard !isDemo, host != nil else { return }
         guard !isScanning else {
             rescanRequested = true
             return
@@ -252,10 +324,13 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
             }
         let rereadsApps = Date().timeIntervalSince(installedReadAt) > 600
         let knownApps = installed
-        let excluded = excludedTeams
+        let hostPath = Bundle.main.bundlePath
         let ownPID = getpid()
-        Task.detached(priority: .utility) {
+        Task { [weak self] in
+            let (apps, result) = await BlockingWork.run { () -> ([InstalledApp], ScanResult) in
             let apps = rereadsApps ? AppDirectory.read(scanner: scanner) : knownApps
+            // Droppy's own team: closing Droppy from inside Droppy ends badly.
+            let excluded = Set([scanner.signature(at: hostPath)?.teamID].compactMap { $0 })
             let processes = scanner.scan()
             let bundles = Set(apps.map(\.path) + running.compactMap(\.bundlePath))
             let catalog = LaunchCatalog.read(appBundles: Array(bundles))
@@ -271,19 +346,32 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
             input.appleApps = apple.compactMap { app in
                 app.bundlePath.map { GroupBuilder.AppleApp(pid: app.pid, name: app.name, path: $0, processes: trees[app.pid] ?? []) }
             }
-            let result = GroupBuilder.build(input, scanner: scanner)
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                if rereadsApps {
-                    self.installed = apps
-                    self.installedReadAt = Date()
-                }
-                self.apply(result, scan: scan)
+            return (apps, GroupBuilder.build(input, scanner: scanner))
             }
+            guard let self else { return }
+            if rereadsApps {
+                self.installed = apps
+                self.installedReadAt = Date()
+            }
+            self.apply(result, scan: scan)
         }
     }
 
     private func apply(_ result: ScanResult, scan: Int) {
+        // Demo data came on, or the droplet went away, while it ran.
+        guard !isDemo, host != nil else {
+            isScanning = false
+            rescanRequested = false
+            return
+        }
+        // It saw what has been closed since as still running: the guard would
+        // take a closed vendor's stale entry for its app being opened again.
+        guard scan >= acceptedScan else {
+            isScanning = false
+            rescanRequested = false
+            refresh()
+            return
+        }
         withAnimation(Date().timeIntervalSince(endedAt) < 6 ? DroppyAnimation.state : nil) {
             groups = result.groups
             hidden = result.hidden
@@ -357,10 +445,6 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
             .sorted { ($0.isAppRunning ? 0 : 1, $1.memory, $0.name) < ($1.isAppRunning ? 0 : 1, $0.memory, $1.name) }
     }
 
-    var backgroundMemory: UInt64 {
-        visibleGroups.reduce(0) { $0 + $1.backgroundProcesses.reduce(0) { $0 + $1.memory } }
-    }
-
     func group(_ id: String) -> AppGroup? { groups.first { $0.id == id } }
 
     // MARK: Closing
@@ -374,6 +458,10 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
 
     /// Closed apps and vendor services.
     var closedApps: [ClosedGroup] { state.closed.filter { !$0.id.hasPrefix("server|") } }
+
+    private func discardRunningScans() {
+        acceptedScan = scansStarted + 1
+    }
 
     public func requestClose(_ id: String) {
         requestClose(.group(id))
@@ -389,6 +477,94 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     public func cancelConfirmation() {
         guard confirming != nil else { return }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { confirming = nil }
+    }
+
+    // MARK: Tools
+
+    /// The corner disc flowing into its panel and back; the widget grows with
+    /// it when the list is too short to hold the panel.
+    func setToolsOpen(_ open: Bool, animated: Bool = true) {
+        guard isToolsOpen != open else { return }
+        if open {
+            confirming = nil
+            host?.feedback.play(.tick)
+            power.refresh()
+        }
+        // Droppy's own spring with a small bounce on the way out; none on the way back.
+        withAnimation(animated ? (open ? DroppyAnimation.stateEmphasis : DroppyAnimation.controlMorph) : nil) {
+            isToolsOpen = open
+            publishLayoutChange()
+        }
+    }
+
+    func setKeepsAwake(_ on: Bool) {
+        let done = power.setKeepsAwake(on)
+        host?.feedback.play(done ? .tick : .failure)
+    }
+
+    func setLidClosed(_ on: Bool) {
+        host?.feedback.play(.tick)
+        power.setLidClosed(on) { [weak self] done in
+            guard let self else { return }
+            // A refused password is no event: the switch going back says it.
+            self.host?.feedback.play(done ? .success : .failure)
+            guard done else { return }
+            self.record(.note, on ? "Lid closed mode turned on." : "Lid closed mode turned off.")
+            self.save()
+        }
+    }
+
+    var skipsPasswordBinding: Binding<Bool> {
+        Binding(
+            get: { self.power.ruleWanted ?? self.power.skipsPassword },
+            set: { on in
+                self.host?.feedback.play(.tick)
+                self.power.setSkipsPassword(on) { [weak self] done in
+                    guard let self else { return }
+                    self.host?.feedback.play(done ? .success : .failure)
+                    guard done else { return }
+                    self.record(.note, on ? "Lid closed mode now switches without a password." : "Lid closed mode asks for a password again.")
+                    self.save()
+                }
+            }
+        )
+    }
+
+    /// What the panel's red button closes on the list on screen. Apps: only
+    /// what is left of apps that are not open, so no open work is touched.
+    /// Servers: launchd services only when the panel's switch says so.
+    private var closeAllGroups: [AppGroup] {
+        guard selectedTab == .apps else { return [] }
+        return visibleGroups.filter { group in
+            // A menu bar app is open as far as the person is concerned.
+            let isInMenuBar = group.processes.contains { $0.kind == .app && $0.isMenuBar }
+            // A vendor's shared services serve its open apps; the guard would
+            // only bring them back.
+            let servesOpenApp = group.id.hasSuffix("|shared") && visibleGroups.contains { $0.teamID == group.teamID && $0.isAppRunning }
+            return !group.isHost && !group.isAppRunning && !isInMenuBar && !servesOpenApp && working[group.id] == nil
+        }
+    }
+
+    private var closeAllTasks: [TaskGroup] {
+        guard selectedTab != .apps else { return [] }
+        return tasks(in: selectedTab).filter { task in
+            working[task.id] == nil && (selectedTab != .servers || includesServices || task.job == nil)
+        }
+    }
+
+    var canCloseAll: Bool { !closeAllGroups.isEmpty || !closeAllTasks.isEmpty }
+
+    /// Each row closes its usual way.
+    func closeAll() {
+        // A hold can outlive its panel: a scroll closes it under the pointer.
+        guard isToolsOpen, canCloseAll else { return }
+        let groups = closeAllGroups
+        let tasks = closeAllTasks
+        host?.feedback.play(.tick)
+        endedAt = Date()
+        setToolsOpen(false)
+        for group in groups { close(group.id) }
+        for task in tasks { closeTask(task.id) }
     }
 
     /// The key under which `working` follows a target while it closes.
@@ -408,7 +584,7 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
             guard let group = group(id) else { return "" }
             count = group.closableProcesses.count
             if count == 0, !group.jobs.isEmpty {
-                return "\(group.jobs.count) launchd job\(group.jobs.count == 1 ? "" : "s") will be turned off"
+                return Phrases.jobsWillBeTurnedOff(group.jobs.count)
             }
         case .task(let id):
             count = task(id)?.processes.count ?? 0
@@ -419,7 +595,7 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
                 ProcessCluster.clusters(of: group.processes).first { $0.id == clusterID }
             }?.entries.filter { !$0.isPrivileged }.count ?? 0
         }
-        return "\(count) process\(count == 1 ? "" : "es") will be killed"
+        return Phrases.processesWillBeKilled(count)
     }
 
     public func confirmClose() {
@@ -445,15 +621,33 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
         let job = task.job
         Task { @MainActor in
             let killed: Int
+            var stopped = job.map { StoppedJob(job: $0, wasLoaded: true) }
             if self.isDemo {
                 try? await Task.sleep(for: .seconds(1))
                 killed = targets.count
             } else {
-                killed = await Task.detached(priority: .userInitiated) { () -> Int in
-                    if let job { _ = Launchctl.stop(job, persist: persists) }
-                    return Closer.end(targets)
-                }.value
+                let outcome = await BlockingWork.run { () -> (killed: Int, stopped: StoppedJob?, failed: Bool) in
+                    guard let job else { return (Closer.end(targets), nil, false) }
+                    let since = Date().addingTimeInterval(-Closer.respawnWindow)
+                    let resolved = Launchctl.resolved(job)
+                    let wasDisabled = Launchctl.disabledLabels(in: .user).contains(job.label)
+                    // Still loaded, launchd would only start it again.
+                    guard Launchctl.stop(resolved, persist: persists) else { return (0, nil, true) }
+                    let killed = Closer.end(targets, respawning: Set(targets.values), since: since)
+                    return (killed, StoppedJob(job: resolved, wasLoaded: true, wasDisabled: wasDisabled), false)
+                }
+                if outcome.failed {
+                    self.working[id] = nil
+                    self.record(.refused, "launchd did not let go of \(task.name), so nothing was ended.")
+                    self.save()
+                    self.host?.feedback.play(.failure)
+                    self.presentStrip(symbol: "exclamationmark.triangle.fill", tint: .orange, title: task.name, detail: "Could not stop")
+                    return
+                }
+                killed = outcome.killed
+                stopped = outcome.stopped
             }
+            self.discardRunningScans()
             withAnimation(DroppyAnimation.state) {
                 self.working[id] = nil
                 if self.isDemo {
@@ -461,20 +655,23 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
                     self.tasks.removeAll { $0.id == id }
                 }
             }
-            if let job {
+            if let stopped {
                 self.state.closed.removeAll { $0.id == id }
                 self.state.closed.append(ClosedGroup(
                     id: id,
                     name: task.name,
                     iconPath: nil,
-                    jobs: [StoppedJob(job: job, wasLoaded: true)],
+                    jobs: [stopped],
                     persisted: persists,
                     closedAt: Date(),
                     processCount: killed,
-                    freedMemory: task.memory
+                    freedMemory: task.memory,
+                    paths: Array(Set(targets.values))
                 ))
             }
-            self.record(.closed, "\(task.name): \(killed) process\(killed == 1 ? "" : "es") ended\(job != nil ? ", launchd job stopped" : "").")
+            self.record(.closed, job != nil
+                ? "\(task.name): \(Phrases.processesEnded(killed)). Its launchd job was stopped."
+                : "\(task.name): \(Phrases.processesEnded(killed)).")
             self.save()
             self.host?.feedback.play(.success)
             self.presentStrip(symbol: "xmark.circle.fill", tint: Self.closeTint, title: task.name, detail: "−\(killed) · \(Bytes.text(task.memory))")
@@ -491,13 +688,60 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     func closeCluster(_ groupID: String, _ clusterID: String) {
         guard let group = group(groupID),
               let cluster = ProcessCluster.clusters(of: group.processes).first(where: { $0.id == clusterID }) else { return }
-        let targets = Dictionary(uniqueKeysWithValues: cluster.entries.filter { !$0.isPrivileged }.map { ($0.pid, $0.path) })
-        end(targets, name: cluster.first.name, memory: cluster.memory, busyID: "\(groupID)#\(clusterID)")
+        let entries = cluster.entries.filter { !$0.isPrivileged }
+        let targets = Dictionary(uniqueKeysWithValues: entries.map { ($0.pid, $0.path) })
+        let busyID = "\(groupID)#\(clusterID)"
+        let apps = entries.filter { $0.kind == .app }.map(\.pid)
+        let labels = Set(entries.compactMap(\.label).filter { !$0.hasPrefix("application.") })
+        let jobs = group.jobs.filter { $0.domain == .user && labels.contains($0.label) }
+        guard !isDemo, working[busyID] == nil, !(apps.isEmpty && jobs.isEmpty) else {
+            end(targets, name: cluster.first.name, memory: cluster.memory, busyID: busyID)
+            return
+        }
+        working[busyID] = "Closing"
+        Task { @MainActor in
+            // What the row's note promises. An app quits the normal way, and
+            // with unsaved work it stays. A job leaves launchd first, until the
+            // next login: without a record, Restore could not bring it back.
+            if let stuck = await self.quit(apps) {
+                self.refuse(busyID, name: stuck, "\(stuck) did not quit, maybe it has unsaved work. Nothing else was closed.", detail: "Still open")
+                return
+            }
+            let failed = await BlockingWork.run {
+                jobs.filter { !Launchctl.stop($0, persist: false) }.map(\.label)
+            }
+            if !failed.isEmpty {
+                self.refuse(busyID, name: cluster.first.name, "launchd did not let go of \(cluster.first.name), so it was left running.", detail: "Could not stop")
+                return
+            }
+            self.working[busyID] = nil
+            let remaining = targets.filter { !apps.contains($0.key) }
+            self.end(remaining, name: cluster.first.name, memory: cluster.memory, busyID: busyID)
+        }
+    }
+
+    /// Asks apps to quit and waits. The name of one that stayed, if any.
+    private func quit(_ pids: [pid_t]) async -> String? {
+        let apps = pids.compactMap { NSRunningApplication(processIdentifier: $0) }
+        apps.forEach { $0.terminate() }
+        let deadline = Date().addingTimeInterval(10)
+        while apps.contains(where: { !$0.isTerminated }), Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return apps.first { !$0.isTerminated }.map { $0.localizedName ?? "The app" }
+    }
+
+    private func refuse(_ busyID: String, name: String, _ sentence: String, detail: String) {
+        working[busyID] = nil
+        record(.refused, sentence)
+        save()
+        presentStrip(symbol: "exclamationmark.triangle.fill", tint: .orange, title: name, detail: detail)
+        host?.feedback.play(.failure)
     }
 
     /// Ends processes and their children, nothing more.
     private func end(_ targets: [pid_t: String], name: String, memory: UInt64, busyID: String) {
-        guard working[busyID] == nil, !targets.isEmpty else { return }
+        guard working[busyID] == nil else { return }
         working[busyID] = "Closing"
         Task { @MainActor in
             let killed: Int
@@ -505,13 +749,14 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
                 try? await Task.sleep(for: .seconds(1))
                 killed = targets.count
             } else {
-                killed = await Task.detached(priority: .userInitiated) { Closer.end(targets) }.value
+                killed = await BlockingWork.run { Closer.end(targets) }
             }
+            self.discardRunningScans()
             withAnimation(DroppyAnimation.state) {
                 self.working[busyID] = nil
                 if self.isDemo { self.removeFromDemo(Set(targets.keys)) }
             }
-            self.record(.closed, "\(name): \(killed) process\(killed == 1 ? "" : "es") ended.")
+            self.record(.closed, "\(name): \(Phrases.processesEnded(killed)).")
             self.save()
             self.host?.feedback.play(.success)
             self.presentStrip(symbol: "xmark.circle.fill", tint: Self.closeTint, title: name, detail: "−\(killed) · \(Bytes.text(memory))")
@@ -526,44 +771,36 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
         guard let group = group(id), !group.isHost, working[id] == nil else { return }
         working[id] = "Closing"
         expanded.remove(id)
+        // Read now: a droplet switched off mid-close can no longer read them,
+        // and the defaults would disable jobs against the person's setting.
+        let persists = persistsAcrossRestart
+        let includesSystem = includesSystem
         if isDemo {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1.2))
-                self.finishClose(group, stoppedJobs: [], killed: group.closableProcesses.count, adminRefused: false)
+                self.finishClose(group, stoppedJobs: [], failedJobs: [], killed: group.closableProcesses.count, adminRefused: false, persists: persists, includesSystem: includesSystem)
             }
             return
         }
 
         Task { @MainActor in
             // 1. The apps, the polite way: an app with unsaved work asks first.
-            let apps = group.processes.filter { $0.kind == .app }
-                .compactMap { NSRunningApplication(processIdentifier: $0.pid) }
-            apps.forEach { $0.terminate() }
-            let deadline = Date().addingTimeInterval(10)
-            while apps.contains(where: { !$0.isTerminated }), Date() < deadline {
-                try? await Task.sleep(for: .milliseconds(250))
-            }
-            if let stuck = apps.first(where: { !$0.isTerminated }) {
-                let name = stuck.localizedName ?? group.name
-                self.working[id] = nil
-                self.record(.refused, "\(name) did not quit, maybe it has unsaved work. Nothing else was closed.")
-                self.presentStrip(symbol: "exclamationmark.triangle.fill", tint: .orange, title: name, detail: "Still open")
-                self.host?.feedback.play(.failure)
+            if let stuck = await self.quit(group.processes.filter { $0.kind == .app }.map(\.pid)) {
+                self.refuse(id, name: stuck, "\(stuck) did not quit, maybe it has unsaved work. Nothing else was closed.", detail: "Still open")
                 return
             }
 
             // 2. The jobs and every process left, off the main thread.
-            let persists = self.persistsAcrossRestart
-            let includesSystem = self.includesSystem
             let scanner = self.scanner
-            let outcome = await Task.detached(priority: .userInitiated) {
+            let outcome = await BlockingWork.run {
                 Closer.stop(group, persist: persists, includeSystem: includesSystem, scanner: scanner)
-            }.value
-            self.finishClose(group, stoppedJobs: outcome.jobs, killed: outcome.killed, adminRefused: outcome.adminRefused)
+            }
+            self.finishClose(group, stoppedJobs: outcome.jobs, failedJobs: outcome.failedJobs, killed: outcome.killed, adminRefused: outcome.adminRefused, persists: persists, includesSystem: includesSystem)
         }
     }
 
-    private func finishClose(_ group: AppGroup, stoppedJobs: [StoppedJob], killed: Int, adminRefused: Bool) {
+    private func finishClose(_ group: AppGroup, stoppedJobs: [StoppedJob], failedJobs: [String], killed: Int, adminRefused: Bool, persists: Bool, includesSystem: Bool) {
+        discardRunningScans()
         let freed = group.processes.filter { $0.kind != .system }.reduce(0) { $0 + $1.memory }
         withAnimation(DroppyAnimation.state) {
             working[group.id] = nil
@@ -576,10 +813,11 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
                     name: group.name,
                     iconPath: group.iconPath,
                     jobs: stoppedJobs,
-                    persisted: persistsAcrossRestart,
+                    persisted: persists,
                     closedAt: Date(),
                     processCount: killed,
-                    freedMemory: freed
+                    freedMemory: freed,
+                    paths: Array(Set(group.processes.map(\.path)))
                 ))
             }
             if isDemo, stoppedJobs.isEmpty, !group.hasBackground {
@@ -588,17 +826,24 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
             }
         }
         var line = group.isIdle || group.closableProcesses.isEmpty
-            ? "\(group.name): \(stoppedJobs.count) job\(stoppedJobs.count == 1 ? "" : "s") turned off."
-            : "\(group.name): \(killed) process\(killed == 1 ? "" : "es") closed, \(stoppedJobs.count) job\(stoppedJobs.count == 1 ? "" : "s") stopped."
+            ? "\(group.name): \(Phrases.jobsTurnedOff(stoppedJobs.count))."
+            : "\(group.name): \(Phrases.processesEnded(killed)), \(Phrases.jobsStopped(stoppedJobs.count))."
         if group.privilegedCount > 0, !includesSystem {
-            line += " \(group.privilegedCount) system service\(group.privilegedCount == 1 ? "" : "s") left running."
+            line += " " + Phrases.servicesLeftRunning(group.privilegedCount)
         } else if adminRefused {
-            line += " The password was not given, system services left running."
+            line += " The password was not given, so system services were left running."
+        }
+        if !failedJobs.isEmpty {
+            line += " launchd did not let go of \(failedJobs.joined(separator: ", ")), so it can come back."
         }
         record(.closed, line)
         save()
         host?.feedback.play(.success)
-        presentStrip(symbol: "xmark.circle.fill", tint: Self.closeTint, title: group.name, detail: "−\(killed) · \(Bytes.text(freed))")
+        if failedJobs.isEmpty {
+            presentStrip(symbol: "xmark.circle.fill", tint: Self.closeTint, title: group.name, detail: "−\(killed) · \(Bytes.text(freed))")
+        } else {
+            presentStrip(symbol: "exclamationmark.triangle.fill", tint: .orange, title: group.name, detail: "Could not stop \(failedJobs.count)")
+        }
         refresh()
         publishLayoutChange()
     }
@@ -619,7 +864,18 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
             terminating[pid] = nil
         }
 
-        for closed in state.closed {
+        for closed in state.closed where working[closed.id] == nil {
+            // A stopped server running again was started again by someone:
+            // saying "Stopped" over it would be false, and nothing is left to
+            // give back.
+            if closed.id.hasPrefix("server|") {
+                if task(closed.id) != nil {
+                    state.closed.removeAll { $0.id == closed.id }
+                    record(.note, "\(closed.name) was started again.")
+                    publishLayoutChange()
+                }
+                continue
+            }
             // A window app is the person opening it again: its own app for an
             // app's group, any app of the vendor for its shared services. A
             // menu bar app is what helpers start, so it is closed with them.
@@ -630,14 +886,18 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
                 .flatMap(\.processes)
                 .first { $0.kind == .app && !$0.isMenuBar }
             if let reopened {
-                if autoRestore { restore(closed.id, reason: "\(reopened.name) opened") }
+                if autoRestore, !restoreRefused.contains(closed.id) { restore(closed.id, openedApp: reopened.name) }
                 continue
             }
             guard guardsClosed, let group = group(closed.id) else { continue }
+            // Several copies of one helper in a pass are one coming back.
+            var countedThisPass = Set<String>()
             for process in group.processes where (process.kind.isBackground || process.isMenuBar) && !process.isPrivileged {
                 guard terminating[process.pid] == nil, !givenUp.contains(process.path) else { continue }
+                // The scan is a moment old: the pid may be someone else's now.
+                guard ProcessScanner.path(of: process.pid) == process.path else { continue }
                 var times = (reclosedAt[process.path] ?? []).filter { now.timeIntervalSince($0) < 60 }
-                times.append(now)
+                if countedThisPass.insert(process.path).inserted { times.append(now) }
                 reclosedAt[process.path] = times
                 if times.count > 6 {
                     givenUp.insert(process.path)
@@ -652,24 +912,43 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
                 record(.reclosed, "\(process.name) started again and was closed again.")
             }
         }
-        save()
+        if stateChanged { save() }
     }
 
     // MARK: Restoring
 
-    /// Lets the vendor's jobs load again and loads the ones that were loaded.
-    public func restore(_ id: String, reason: String? = nil) {
-        guard let index = state.closed.firstIndex(where: { $0.id == id }) else { return }
-        let closed = state.closed.remove(at: index)
-        givenUp = givenUp.filter { path in !(group(id)?.processes.contains { $0.path == path } ?? false) }
-        record(.restored, "\(closed.name) is back\(reason.map { ", \($0)" } ?? "").")
-        save()
+    /// Gives the vendor's jobs back. The record goes only once that worked: a
+    /// refused password leaves the row, with the Restore button to try again.
+    public func restore(_ id: String, openedApp: String? = nil) {
+        guard let closed = state.closed.first(where: { $0.id == id }), working[id] == nil else { return }
         if isDemo {
             if let task = demoStash.removeValue(forKey: id) { tasks.append(task) }
-        } else {
-            let jobs = closed.jobs
-            Task.detached(priority: .userInitiated) { Closer.start(jobs) }
+            finishRestore(closed, openedApp: openedApp)
+            return
         }
+        working[id] = "Restoring"
+        let jobs = closed.jobs
+        Task { @MainActor in
+            let isBack = await BlockingWork.run { Closer.start(jobs) }
+            self.working[id] = nil
+            if isBack {
+                self.restoreRefused.remove(id)
+                self.finishRestore(closed, openedApp: openedApp)
+            } else {
+                self.restoreRefused.insert(id)
+                self.refuse(id, name: closed.name, "\(closed.name) stays closed because the password was not given.", detail: "Not restored")
+            }
+        }
+    }
+
+    private func finishRestore(_ closed: ClosedGroup, openedApp: String?) {
+        state.closed.removeAll { $0.id == closed.id }
+        let paths = Set((closed.paths ?? []) + (group(closed.id)?.processes.map(\.path) ?? []))
+        givenUp.subtract(paths)
+        paths.forEach { reclosedAt[$0] = nil }
+        record(.restored, openedApp.map { "\(closed.name) is back because \($0) opened." } ?? "\(closed.name) is back.")
+        save()
+        discardRunningScans()
         presentStrip(symbol: "arrow.uturn.backward.circle.fill", tint: AdaptiveColors.notchSurfaceSecondaryText, title: closed.name, detail: "Back")
         publishLayoutChange()
         refresh()
@@ -697,6 +976,7 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     }
 
     private func record(_ kind: JournalEntry.Kind, _ text: String) {
+        stateChanged = true
         state.journal.insert(JournalEntry(date: Date(), kind: kind, text: text), at: 0)
         if state.journal.count > KillTreeState.journalLimit {
             state.journal.removeLast(state.journal.count - KillTreeState.journalLimit)
@@ -710,8 +990,9 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     /// A row whose app is closed while its helpers run on sits back.
     static let closedAppOpacity: Double = 0.5
 
-    private func presentStrip(symbol: String, tint: Color, title: String, detail: String) {
-        guard let host, showsHUD else { return }
+    /// `always`: a safety notice, shown even with result strips turned off.
+    private func presentStrip(symbol: String, tint: Color, title: String, detail: String, always: Bool = false) {
+        guard let host, showsHUD || always else { return }
         let request = DropletHUDRequest(
             id: "killtree.result",
             duration: 2.2,
@@ -733,6 +1014,7 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     func show(_ target: KillTreeScreen) {
         guard screen != target else { return }
         confirming = nil
+        isToolsOpen = false
         if case .category(let category) = target { lastCategory = category }
         screen = target
         publishLayoutChange()
@@ -769,6 +1051,26 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
         host?.feedback.play(.tick)
     }
 
+    /// The host takes one height for a widget, alone or in a row, and the list's
+    /// would stretch a whole row of widgets. So the height follows where the
+    /// view is mounted, and the last place is remembered for the next opening.
+    func setPaired(_ paired: Bool) {
+        guard isPaired != paired else { return }
+        isPaired = paired
+        host?.preferences.setValue(paired, forKey: Keys.isPaired)
+        publishLayoutChange()
+    }
+
+    /// From the widget beside others: K*llTree alone on the shelf.
+    func openAlone() {
+        setPaired(false)
+        guard host?.shelf.open(revealing: Self.widgetID) == true else {
+            host?.feedback.play(.failure)
+            return
+        }
+        host?.feedback.play(.tick)
+    }
+
     public func openSettings() {
         _ = host?.workspace.openSettings()
     }
@@ -799,19 +1101,21 @@ public final class KillTreeDroplet: NSObject, ObservableObject, Droplet {
     }
 
     var hasSeenWelcome: Bool { preference(Keys.hasSeenWelcome, default: false) }
-    var persistsAcrossRestart: Bool { preference(Keys.persists, default: true) }
+    var persistsAcrossRestart: Bool { preference(Keys.persists, default: false) }
     var autoRestore: Bool { preference(Keys.autoRestore, default: true) }
-    var guardsClosed: Bool { preference(Keys.guards, default: true) }
+    var guardsClosed: Bool { preference(Keys.guards, default: false) }
     var includesSystem: Bool { preference(Keys.includesSystem, default: false) }
     var showsAll: Bool { preference(Keys.showsAll, default: false) }
     var showsHUD: Bool { preference(Keys.showsHUD, default: true) }
+    var includesServices: Bool { preference(Keys.includesServices, default: false) }
 
-    var persistsBinding: Binding<Bool> { binding(Keys.persists, default: true) }
-    var autoRestoreBinding: Binding<Bool> { binding(Keys.autoRestore, default: true) }
-    var guardsBinding: Binding<Bool> { binding(Keys.guards, default: true) }
+    var persistsBinding: Binding<Bool> { binding(Keys.persists, default: false) }
+    var autoRestoreBinding: Binding<Bool> { binding(Keys.autoRestore, default: true) { self.updateTimer() } }
+    var guardsBinding: Binding<Bool> { binding(Keys.guards, default: false) { self.updateTimer() } }
     var includesSystemBinding: Binding<Bool> { binding(Keys.includesSystem, default: false) }
     var showsAllBinding: Binding<Bool> { binding(Keys.showsAll, default: false) { self.publishLayoutChange() } }
     var showsHUDBinding: Binding<Bool> { binding(Keys.showsHUD, default: true) }
+    var includesServicesBinding: Binding<Bool> { binding(Keys.includesServices, default: false) }
     var demoBinding: Binding<Bool> {
         Binding(get: { self.isDemo }, set: { self.setDemo($0) })
     }
@@ -823,6 +1127,12 @@ extension KillTreeDroplet: ShelfWidgetProviding {
     static let hostInsets: CGFloat = DroppySpacing.sm * 2
     static let navHeight: CGFloat = CategoryNavBar.height
     static let welcomeHeight: CGFloat = 195
+    static let pairedWordmarkWidth: CGFloat = 140
+    static let pairedButtonHeight: CGFloat = 28
+    /// The letters, two lines of text and the button, with their gaps.
+    static var pairedHeight: CGFloat {
+        hostInsets + KillWordmark.height(forWidth: pairedWordmarkWidth) + 28 + pairedButtonHeight + DroppySpacing.sm * 2
+    }
     nonisolated static let groupRowHeight: CGFloat = 40
     nonisolated static let processRowHeight: CGFloat = 24
     nonisolated static let sectionHeaderHeight: CGFloat = 26
@@ -884,11 +1194,14 @@ extension KillTreeDroplet: ShelfWidgetProviding {
         let rows = rows(for: category)
         let content = rows.isEmpty
             ? Self.listMinHeight
-            : rows.map(\.height).reduce(0, +) + CGFloat(rows.count - 1) * Self.rowSpacing
-        return min(max(content, Self.listMinHeight), Self.listMaxHeight)
+            : rows.map(\.height).reduce(0, +) + CGFloat(rows.count - 1) * Self.rowSpacing + ToolsMetrics.listFooter
+        let height = min(max(content, Self.listMinHeight), Self.listMaxHeight)
+        // The panel fits inside the widget: over the nav, down to the corner.
+        return isToolsOpen ? max(height, ToolsMetrics.panelHeight + ToolsMetrics.islandMargin - Self.navHeight - DroppySpacing.md) : height
     }
 
     var widgetHeight: CGFloat {
+        if isPaired { return Self.pairedHeight }
         switch screen {
         case .welcome:
             return Self.hostInsets + Self.welcomeHeight
@@ -971,7 +1284,7 @@ private struct ResultStrip: View {
 
 extension KillTreeDroplet: SettingsPaneProviding {
     public func makeSettingsPane(context: SettingsPaneContext) -> AnyView {
-        AnyView(KillTreeSettings(droplet: self))
+        AnyView(KillTreeSettings(droplet: self, power: power))
     }
 
     public var settingsSearchEntries: [SettingsSearchEntry] {
@@ -980,7 +1293,8 @@ extension KillTreeDroplet: SettingsPaneProviding {
             SettingsSearchEntry(title: "Bring them back when the app opens", keywords: ["restore", "relaunch"]),
             SettingsSearchEntry(title: "Close again if they come back", keywords: ["guard", "respawn", "keepalive"]),
             SettingsSearchEntry(title: "Also stop system services", keywords: ["root", "daemon", "administrator", "password"]),
-            SettingsSearchEntry(title: "Restore everything", keywords: ["restore", "undo"])
+            SettingsSearchEntry(title: "Restore everything", keywords: ["restore", "undo"]),
+            SettingsSearchEntry(title: "Switch lid closed mode without a password", keywords: ["sleep", "lid", "password", "sudo"])
         ]
     }
 }

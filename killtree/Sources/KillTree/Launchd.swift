@@ -133,12 +133,21 @@ enum Launchctl {
         let output: String?
     }
 
+    /// How long a read may take, and a change: launchd waits for a job to exit
+    /// before a bootout returns. The password prompt waits for a person.
+    static let readDeadline: TimeInterval = 10
+    static let changeDeadline: TimeInterval = 30
+    static let passwordDeadline: TimeInterval = 120
+
     @discardableResult
-    static func run(_ arguments: [String]) -> Result {
-        run(executable: "/bin/launchctl", arguments)
+    static func run(_ arguments: [String], timeout: TimeInterval = readDeadline, cancellable: Bool = true) -> Result {
+        run(executable: "/bin/launchctl", arguments, timeout: timeout, cancellable: cancellable)
     }
 
-    static func run(executable: String, _ arguments: [String]) -> Result {
+    /// Runs a tool off the main actor and gives up at the deadline, taking its
+    /// process group with it: the tool's own group, never Droppy's. Output is
+    /// read while it runs, so a full pipe cannot stall it. Blocks its caller.
+    static func run(executable: String, _ arguments: [String], timeout: TimeInterval = readDeadline, cancellable: Bool = true) -> Result {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -150,25 +159,106 @@ enum Launchctl {
         } catch {
             return Result(status: -1, output: nil)
         }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let pid = process.processIdentifier
+        if cancellable { Running.add(pid) }
+        defer { Running.remove(pid) }
+
+        let exited = DispatchSemaphore(value: 0)
+        let deadline = DispatchWorkItem { Self.stop(group: pid, exited: exited) }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: deadline)
+
+        let reader = pipe.fileHandleForReading
+        let output = OutputBox()
+        let read = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            output.data = reader.readDataToEndOfFile()
+            read.signal()
+        }
         process.waitUntilExit()
-        return Result(status: process.terminationStatus, output: String(data: data, encoding: .utf8))
+        exited.signal()
+        deadline.cancel()
+        // A child that left the group can keep the pipe open: do not wait for it.
+        _ = read.wait(timeout: .now() + 1)
+        return Result(status: process.terminationStatus, output: String(data: output.data, encoding: .utf8))
+    }
+
+    private static func stop(group pid: pid_t, exited: DispatchSemaphore) {
+        kill(-pid, SIGTERM)
+        // Only while it has not exited: a pid that has can mean something else.
+        if exited.wait(timeout: .now() + 2) == .timedOut { kill(-pid, SIGKILL) }
+    }
+
+    /// The droplet is being switched off: scans and an open password prompt
+    /// stop with it. Changes already under way finish, or their record lies.
+    static func cancelRunning() {
+        for pid in Running.all { kill(-pid, SIGTERM) }
+    }
+
+    private final class OutputBox: @unchecked Sendable {
+        var data = Data()
+    }
+
+    private enum Running {
+        private static let lock = NSLock()
+        nonisolated(unsafe) private static var pids = Set<pid_t>()
+
+        static var all: Set<pid_t> { lock.withLock { pids } }
+        static func add(_ pid: pid_t) { _ = lock.withLock { pids.insert(pid) } }
+        static func remove(_ pid: pid_t) { _ = lock.withLock { pids.remove(pid) } }
     }
 
     /// Stops a user job and, when `persist`, keeps it from loading at the
     /// next login. Both are allowed in the user's own domain without a password.
     static func stop(_ job: LaunchJob, persist: Bool) -> Bool {
-        let bootout = run(["bootout", job.serviceTarget])
-        if persist { run(["disable", job.serviceTarget]) }
-        // 3: "No such process", the job was not loaded. Still a success.
-        return bootout.status == 0 || bootout.status == 3 || bootout.status == 113
+        let bootout = run(["bootout", job.serviceTarget], timeout: changeDeadline, cancellable: false)
+        // 3 and 113: the job was not loaded. Still a success.
+        guard bootout.status == 0 || bootout.status == 3 || bootout.status == 113 else { return false }
+        if persist { run(["disable", job.serviceTarget], cancellable: false) }
+        return true
+    }
+
+    /// The labels the person, or K*llTree, has disabled in a domain.
+    static func disabledLabels(in domain: LaunchDomain) -> Set<String> {
+        parseDisabled(run(["print-disabled", domain.target]).output ?? "")
+    }
+
+    /// `"label" => disabled` per line; older systems say `true`.
+    static func parseDisabled(_ output: String) -> Set<String> {
+        var labels = Set<String>()
+        for line in output.split(separator: "\n") {
+            let parts = line.components(separatedBy: " => ")
+            guard parts.count == 2 else { continue }
+            let state = parts[1].trimmingCharacters(in: .whitespaces)
+            guard state == "disabled" || state == "true" else { continue }
+            labels.insert(parts[0].trimmingCharacters(in: CharacterSet(charactersIn: " \t\"")))
+        }
+        return labels
+    }
+
+    static func isLoaded(_ job: LaunchJob) -> Bool {
+        run(["print", job.serviceTarget]).status == 0
+    }
+
+    /// A job known only from `launchctl list` has no plist yet: launchd says
+    /// where it came from, or Restore could not load it again.
+    static func resolved(_ job: LaunchJob) -> LaunchJob {
+        guard job.plistPath == nil, let output = run(["print", job.serviceTarget]).output else { return job }
+        let path = output.split(separator: "\n").lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { $0.hasPrefix("path = ") }
+            .map { String($0.dropFirst("path = ".count)) }
+        guard let path, path.hasPrefix("/") else { return job }
+        return LaunchJob(
+            label: job.label, plistPath: path, domain: job.domain, program: job.program,
+            keepAlive: job.keepAlive, runAtLoad: job.runAtLoad, associatedBundleIDs: job.associatedBundleIDs
+        )
     }
 
     /// Lets a job load again and, when it was loaded before, loads it now.
-    static func start(_ job: LaunchJob, load: Bool) {
-        run(["enable", job.serviceTarget])
+    static func start(_ job: LaunchJob, load: Bool, enable: Bool = true) {
+        if enable { run(["enable", job.serviceTarget], cancellable: false) }
         if load, let plist = job.plistPath, FileManager.default.fileExists(atPath: plist) {
-            run(["bootstrap", job.domain.target, plist])
+            run(["bootstrap", job.domain.target, plist], timeout: changeDeadline, cancellable: false)
         }
     }
 
@@ -180,7 +270,8 @@ enum Launchctl {
             .replacingOccurrences(of: "\"", with: "\\\"")
         let result = run(
             executable: "/usr/bin/osascript",
-            ["-e", "do shell script \"\(script)\" with administrator privileges"]
+            ["-e", "do shell script \"\(script)\" with administrator privileges"],
+            timeout: passwordDeadline
         )
         return result.status == 0
     }

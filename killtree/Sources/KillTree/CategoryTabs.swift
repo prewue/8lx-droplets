@@ -267,7 +267,7 @@ private struct TabLens: View {
         let shape = Capsule(style: .continuous)
         ZStack {
             shape
-                .fill(Color.white.opacity(0.22))
+                .fill(AdaptiveColors.notchSurfacePrimaryText.opacity(0.22))
                 .opacity(isLifted ? 0 : 1)
             shape
                 .fill(Color.clear)

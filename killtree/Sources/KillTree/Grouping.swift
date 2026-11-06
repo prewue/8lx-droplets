@@ -666,7 +666,8 @@ enum GroupBuilder {
             byPID: byPID,
             jobByPID: jobByPID,
             jobsByLabel: jobsByLabel,
-            ports: input.ports
+            ports: input.ports,
+            host: host
         )
         return result
     }
